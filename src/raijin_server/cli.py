@@ -265,6 +265,14 @@ def _render_menu(dry_run: bool) -> int:
     return exit_idx
 
 
+def _version_callback(value: bool) -> None:
+    """Imprime a versao e encerra imediatamente."""
+
+    if value:
+        typer.echo(f"raijin-server {__version__}")
+        raise typer.Exit()
+
+
 def interactive_menu(ctx: typer.Context) -> None:
     exec_ctx = ctx.obj or ExecutionContext()
     current_dry_run = exec_ctx.dry_run
@@ -315,6 +323,15 @@ def main(
     module: Optional[str] = typer.Option(None, "-m", "--module", help="Modulo a executar"),
     dry_run: bool = typer.Option(False, "-n", "--dry-run", help="Mostra comandos sem executa-los."),
     skip_validation: bool = typer.Option(False, "--skip-validation", help="Pula validacoes de pre-requisitos"),
+    skip_root: bool = typer.Option(False, "--skip-root", help="Permite validar sem exigir root (nao recomendado)"),
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        "-V",
+        is_eager=True,
+        callback=_version_callback,
+        help="Mostra a versao do CLI e sai",
+    ),
 ) -> None:
     """Mostra um menu simples quando nenhum subcomando e informado."""
 
@@ -322,7 +339,7 @@ def main(
 
     # Executa validacoes de pre-requisitos
     if not skip_validation and not dry_run:
-        if not validate_system_requirements(ctx.obj, skip_root=False):
+        if not validate_system_requirements(ctx.obj, skip_root=skip_root):
             typer.secho("\nAbortando devido a pre-requisitos nao atendidos.", fg=typer.colors.RED)
             typer.echo("Use --skip-validation para pular validacoes (nao recomendado).")
             raise typer.Exit(code=1)

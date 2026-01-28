@@ -6,6 +6,8 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
+import urllib.request
 from pathlib import Path
 from typing import List, Tuple
 
@@ -77,10 +79,11 @@ def check_memory(min_gb: int = 4) -> Tuple[bool, str]:
 
 
 def check_connectivity(hosts: List[str] | None = None) -> Tuple[bool, str]:
-    """Verifica conectividade com internet."""
+    """Verifica conectividade com internet via ICMP e HTTP."""
     if hosts is None:
         hosts = ["8.8.8.8", "1.1.1.1"]
 
+    # Primeiro tenta ICMP
     for host in hosts:
         try:
             result = subprocess.run(
@@ -93,7 +96,13 @@ def check_connectivity(hosts: List[str] | None = None) -> Tuple[bool, str]:
         except Exception:
             continue
 
-    return False, "Sem conectividade com internet"
+    # Fallback HTTP (caso ICMP seja bloqueado)
+    try:
+        req = urllib.request.Request("https://www.google.com", method="HEAD")
+        with urllib.request.urlopen(req, timeout=5):
+            return True, "Conectividade HTTP OK (https://www.google.com)"
+    except Exception:
+        return False, "Sem conectividade com internet (ICMP e HTTP falharam)"
 
 
 def check_required_commands(commands: List[str] | None = None) -> Tuple[bool, List[str]]:
@@ -111,11 +120,34 @@ def check_required_commands(commands: List[str] | None = None) -> Tuple[bool, Li
     return True, []
 
 
+def check_virtualenv() -> Tuple[bool, str]:
+    """Valida se a execucao esta dentro de um ambiente isolado (venv/pyenv)."""
+
+    in_venv = sys.prefix != sys.base_prefix or os.environ.get("VIRTUAL_ENV")
+    externally_managed = Path(sys.prefix).joinpath("../EXTERNALLY-MANAGED").resolve()
+
+    if in_venv:
+        return True, "Executando em ambiente virtual"
+
+    if externally_managed.exists():
+        return False, (
+            "Python gerenciado pelo sistema. Crie um venv: "
+            "python3 -m venv .venv && source .venv/bin/activate && pip install -U pip setuptools && "
+            "pip install raijin-server"
+        )
+
+    return False, (
+        "Execucao fora de venv detectada. Crie um venv: "
+        "python3 -m venv .venv && source .venv/bin/activate && pip install -U pip setuptools && "
+        "pip install raijin-server"
+    )
+
+
 def check_is_root() -> Tuple[bool, str]:
     """Verifica se esta executando como root."""
     if os.geteuid() == 0:
         return True, "Executando como root"
-    return False, "Usuario nao e root (use sudo)"
+    return False, "Usuario nao e root (reexecute com: sudo -E raijin-server ...)"
 
 
 def validate_system_requirements(ctx: ExecutionContext, skip_root: bool = False) -> bool:
@@ -128,6 +160,7 @@ def validate_system_requirements(ctx: ExecutionContext, skip_root: bool = False)
     typer.secho("\n=== Validacao de Pre-requisitos ===", fg=typer.colors.CYAN, bold=True)
 
     checks = [
+        ("Ambiente Python", check_virtualenv()),
         ("Sistema Operacional", check_os_version()),
         ("Espaco em Disco", check_disk_space()),
         ("Memoria RAM", check_memory()),
@@ -142,7 +175,8 @@ def validate_system_requirements(ctx: ExecutionContext, skip_root: bool = False)
     if cmd_ok:
         checks.append(("Comandos Essenciais", (True, "Todos os comandos disponiveis")))
     else:
-        checks.append(("Comandos Essenciais", (False, f"Faltando: {', '.join(missing)}")))
+        install_hint = "sudo apt-get update && sudo apt-get install -y " + " ".join(missing)
+        checks.append(("Comandos Essenciais", (False, f"Faltando: {', '.join(missing)} | Sugestao: {install_hint}")))
 
     all_passed = True
     for name, (passed, message) in checks:
