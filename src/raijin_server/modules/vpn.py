@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import platform
 import subprocess
 import textwrap
 from pathlib import Path
@@ -22,6 +23,37 @@ from raijin_server.utils import (
 WIREGUARD_DIR = Path("/etc/wireguard")
 CLIENTS_DIR = WIREGUARD_DIR / "clients"
 SYSCTL_FILE = Path("/etc/sysctl.d/99-wireguard.conf")
+
+
+def _is_secure_boot_enabled() -> bool:
+    """Retorna True se Secure Boot estiver ativo (EFI)."""
+
+    try:
+        sb_path = Path("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")
+        if not sb_path.exists():
+            return False
+        data = sb_path.read_bytes()
+        # Estrutura: atributos (4 bytes) + valor (1 byte)
+        return len(data) >= 5 and data[4] == 1
+    except Exception:
+        return False
+
+
+def _kernel_headers_present() -> bool:
+    """Verifica se os headers do kernel atual estao instalados."""
+
+    release = platform.uname().release
+    return Path(f"/lib/modules/{release}/build").exists()
+
+
+def _modprobe_check(module: str) -> bool:
+    """Tenta carregar o modulo em modo dry-run para validar disponibilidade."""
+
+    try:
+        result = subprocess.run(["modprobe", "-n", module], capture_output=True, text=True, timeout=5)
+        return result.returncode == 0
+    except Exception:
+        return False
 
 
 def _generate_keypair(
@@ -68,6 +100,40 @@ def _generate_keypair(
 def run(ctx: ExecutionContext) -> None:
     require_root(ctx)
     typer.echo("Configurando WireGuard (VPN site-to-site)...")
+
+    if _is_secure_boot_enabled():
+        typer.secho(
+            "Secure Boot detectado: modulos DKMS (wireguard) podem exigir assinatura.\n"
+            "Se o modulo nao carregar, assine-o ou desabilite Secure Boot temporariamente.",
+            fg=typer.colors.YELLOW,
+        )
+
+    # NIC offload pode interferir em VPN/perf em alguns hardwares; aviso leve
+    typer.secho(
+        "Considere desabilitar offloads problemáticos em NICs (tso/gso/gro) se notar latência ou perda.",
+        fg=typer.colors.YELLOW,
+    )
+
+    if not _kernel_headers_present():
+        typer.secho(
+            "Headers do kernel nao encontrados; instalando linux-headers-$(uname -r) para suportar WireGuard.",
+            fg=typer.colors.YELLOW,
+        )
+        release = platform.uname().release
+        header_pkg = f"linux-headers-{release}"
+        apt_install([header_pkg], ctx)
+        if not _kernel_headers_present():
+            typer.secho(
+                f"Headers ainda ausentes apos tentar instalar {header_pkg}. Verifique repos ou kernel custom.",
+                fg=typer.colors.RED,
+            )
+            raise typer.Exit(code=1)
+
+    if not _modprobe_check("wireguard"):
+        typer.secho(
+            "Aviso: modulo wireguard pode nao estar disponivel (modprobe -n wireguard falhou).",
+            fg=typer.colors.YELLOW,
+        )
 
     apt_install(["wireguard", "wireguard-tools", "qrencode"], ctx)
 

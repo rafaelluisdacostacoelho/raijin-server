@@ -22,7 +22,7 @@ def run(ctx: ExecutionContext) -> None:
         "certificatesResolvers.letsencrypt.acme.storage=/data/acme.json",
         "certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=web",
         "logs.general.level=INFO",
-        f"providers.kubernetesIngress.ingressClass=traefik",
+        "providers.kubernetesIngress.ingressClass=traefik",
     ]
 
     if dashboard_host:

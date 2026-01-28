@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import platform
 import shlex
 import shutil
 import subprocess
 import time
+from logging.handlers import RotatingFileHandler
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Mapping, MutableMapping, Sequence
 
 import typer
 
-# Configuracao de logging estruturado
+# Configuracao de logging estruturado com rotacao para evitar inchar o disco
 LOG_DIR = Path("/var/log/raijin-server")
 try:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -24,15 +23,23 @@ try:
 except PermissionError:
     LOG_FILE = Path.home() / ".raijin-server.log"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger('raijin-server')
+MAX_LOG_BYTES = int(os.environ.get("RAIJIN_LOG_MAX_BYTES", 20 * 1024 * 1024))  # 20MB default
+BACKUP_COUNT = int(os.environ.get("RAIJIN_LOG_BACKUP_COUNT", 5))
+
+logger = logging.getLogger("raijin-server")
+logger.setLevel(logging.INFO)
+
+file_handler = RotatingFileHandler(LOG_FILE, maxBytes=MAX_LOG_BYTES, backupCount=BACKUP_COUNT)
+stream_handler = logging.StreamHandler()
+
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+file_handler.setFormatter(formatter)
+stream_handler.setFormatter(formatter)
+
+logger.handlers.clear()
+logger.addHandler(file_handler)
+logger.addHandler(stream_handler)
+logger.propagate = False
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 SCRIPTS_DIR = PACKAGE_ROOT / "scripts"

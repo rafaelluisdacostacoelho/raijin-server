@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-import crypt
+import subprocess
 from pathlib import Path
 from typing import Dict, List
 
@@ -54,8 +54,19 @@ COMPONENTS: List[Dict[str, object]] = [
 
 
 def _generate_htpasswd(username: str, password: str) -> str:
+  try:
+    result = subprocess.run(
+      ["openssl", "passwd", "-6", password],
+      capture_output=True,
+      text=True,
+      check=True,
+    )
+    hashed = result.stdout.strip()
+  except Exception:
+    import crypt
+
     hashed = crypt.crypt(password, crypt.mksalt(crypt.METHOD_SHA512))
-    return f"{username}:{hashed}"
+  return f"{username}:{hashed}"
 
 
 def _build_manifest(

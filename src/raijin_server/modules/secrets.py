@@ -39,7 +39,7 @@ def _export_sealed_cert(namespace: str, ctx: ExecutionContext) -> None:
         "-l",
         "sealedsecrets.bitnami.com/sealed-secrets-key",
         "-o",
-        "jsonpath={.items[0].data.tls\.crt}",
+        r"jsonpath={.items[0].data.tls\.crt}",
     ]
     result = run_cmd(cmd, ctx, check=False)
     if result.returncode != 0:

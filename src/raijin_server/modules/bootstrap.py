@@ -1,11 +1,41 @@
 """Instalacao automatica de ferramentas necessarias para o raijin-server."""
 
 import shutil
+import platform
 from pathlib import Path
 
 import typer
 
 from raijin_server.utils import ExecutionContext, apt_install, apt_update, require_root, run_cmd, write_file
+
+
+def _kernel_headers_present() -> bool:
+    """Verifica se os headers do kernel atual estao presentes."""
+
+    release = platform.uname().release
+    return Path(f"/lib/modules/{release}/build").exists()
+
+
+def _ensure_kernel_headers(ctx: ExecutionContext) -> None:
+    """Instala headers do kernel se ausentes; falha de forma clara se nao encontrar."""
+
+    if _kernel_headers_present():
+        return
+
+    release = platform.uname().release
+    header_pkg = f"linux-headers-{release}"
+    typer.secho(
+        f"Headers do kernel {release} nao encontrados. Instalando {header_pkg}...",
+        fg=typer.colors.YELLOW,
+    )
+    apt_install([header_pkg], ctx)
+
+    if not _kernel_headers_present():
+        typer.secho(
+            f"Headers ainda ausentes apos instalar {header_pkg}. Verifique repos ou kernel custom.",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=1)
 
 
 # Versoes das ferramentas
@@ -93,6 +123,8 @@ def _install_containerd(ctx: ExecutionContext) -> None:
     """Configura containerd como container runtime."""
     typer.echo("Configurando containerd...")
 
+    _ensure_kernel_headers(ctx)
+
     # Carrega modulos do kernel necessarios
     modules_conf = """overlay
 br_netfilter
@@ -102,6 +134,12 @@ br_netfilter
     run_cmd(["modprobe", "overlay"], ctx, check=False)
     run_cmd(["modprobe", "br_netfilter"], ctx, check=False)
 
+    if not Path("/proc/sys/net/bridge/bridge-nf-call-iptables").exists():
+        typer.secho(
+            "Arquivo /proc/sys/net/bridge/bridge-nf-call-iptables ausente. Verifique suporte a br_netfilter no kernel.",
+            fg=typer.colors.YELLOW,
+        )
+
     # Sysctl para Kubernetes
     sysctl_conf = """net.bridge.bridge-nf-call-iptables  = 1
 net.bridge.bridge-nf-call-ip6tables = 1
@@ -109,6 +147,18 @@ net.ipv4.ip_forward                 = 1
 """
     write_file(Path("/etc/sysctl.d/k8s.conf"), sysctl_conf, ctx)
     run_cmd(["sysctl", "--system"], ctx, check=False)
+
+    # Verificacao best-effort dos tunables
+    try:
+        with open("/proc/sys/net/bridge/bridge-nf-call-iptables") as f:
+            val = f.read().strip()
+            if val != "1":
+                typer.secho(
+                    "bridge-nf-call-iptables nao ficou em 1 (cheque modulo br_netfilter e sysctl).",
+                    fg=typer.colors.YELLOW,
+                )
+    except Exception:
+        pass
 
     apt_install(["containerd"], ctx)
 
@@ -157,6 +207,21 @@ def _install_cert_manager(ctx: ExecutionContext) -> None:
 def run(ctx: ExecutionContext) -> None:
     """Instala todas as ferramentas necessarias para o ambiente produtivo."""
     require_root(ctx)
+
+    # Precheck Secure Boot (pode afetar modulos DKMS e drivers)
+    try:
+        sb_path = Path("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")
+        secure_boot = False
+        if sb_path.exists():
+            data = sb_path.read_bytes()
+            secure_boot = len(data) >= 5 and data[4] == 1
+        if secure_boot:
+            typer.secho(
+                "Secure Boot detectado: modulos DKMS (WireGuard, drivers) podem exigir assinatura.",
+                fg=typer.colors.YELLOW,
+            )
+    except Exception:
+        pass
 
     typer.secho("\n=== Bootstrap: Instalando Ferramentas ===", fg=typer.colors.CYAN, bold=True)
 

@@ -10,7 +10,7 @@ import typer
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Prompt
 from rich.table import Table
 
 from raijin_server import __version__
@@ -217,7 +217,7 @@ def _select_state_dir() -> Path:
 
     fallback = Path("/tmp/raijin-state")
     fallback.mkdir(parents=True, exist_ok=True)
-    console.print(f"[yellow]Usando fallback /tmp/raijin-state para marcar conclusao[/yellow]")
+    console.print("[yellow]Usando fallback /tmp/raijin-state para marcar conclusao[/yellow]")
     _STATE_DIR_CACHE = fallback
     return fallback
 

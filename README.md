@@ -140,6 +140,11 @@ sudo raijin-server full-install
 O módulo detecta automaticamente se já existe um Netplan com IP estático e pergunta
 se deseja pular. Se executar manualmente, basta responder "não" quando perguntado.
 
+### Notas de kernel / Secure Boot
+- WireGuard depende de módulo de kernel. Com Secure Boot ativo, o módulo DKMS pode precisar ser assinado; se `modprobe wireguard` falhar, assine ou desabilite Secure Boot temporariamente.
+- Certifique-se de ter headers do kernel instalados (`/lib/modules/$(uname -r)/build`) antes de instalar WireGuard.
+- Para Kubernetes/Calico é necessário `br_netfilter` e sysctl `bridge-nf-call-iptables=1`. O módulo `bootstrap` já aplica, mas verifique se seu kernel suporta.
+
 ### Comandos Úteis
 ```bash
 # Versão
@@ -147,6 +152,23 @@ raijin-server version
 
 # Monitorar logs
 tail -f /var/log/raijin-server/raijin-server.log
+
+# Rotacao de logs (default: 20MB, 5 backups)
+# Ajuste via env:
+#   export RAIJIN_LOG_MAX_BYTES=$((50*1024*1024))
+#   export RAIJIN_LOG_BACKUP_COUNT=5
+
+# Métrica de tamanho de logs (Prometheus/Grafana) usando node_exporter textfile collector
+# 1) Habilite textfile collector (ex.: /var/lib/node_exporter/textfile_collector)
+# 2) Agende o script:
+#    sudo /bin/bash -c 'RAIJIN_METRIC_FILE=/var/lib/node_exporter/textfile_collector/raijin_log_size.prom \
+#      RAIJIN_LOG_DIR=/var/log/raijin-server \
+#      /usr/bin/bash -l $(python - <<'PY'
+#from raijin_server.utils import resolve_script_path
+#print(resolve_script_path("log_size_metric.sh"))
+#PY
+#)'
+# 3) Crie um painel no Grafana com a métrica `raijin_log_size_total_bytes` (Prometheus)
 ```
 
 ## Estrutura
