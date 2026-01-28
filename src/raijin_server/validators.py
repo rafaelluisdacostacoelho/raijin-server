@@ -196,6 +196,7 @@ def check_module_dependencies(module: str, ctx: ExecutionContext) -> bool:
         "kafka": ["kubernetes"],
         "observability_ingress": ["traefik", "prometheus", "grafana"],
         "observability_dashboards": ["prometheus", "grafana"],
+        "apokolips_demo": ["kubernetes", "traefik"],
     }
 
     if module not in dependencies:

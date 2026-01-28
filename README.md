@@ -167,7 +167,7 @@ tail -f /var/log/raijin-server/raijin-server.log
 - `firewall`: UFW com regras para SSH/HTTP/HTTPS/K8s.
 - `vpn`: provisiona WireGuard (servidor + cliente inicial) e libera firewall.
 - `kubernetes`: kubeadm init, containerd SystemdCgroup, kubeconfig.
-- `calico`: CNI Calico com CIDR custom e policy default-deny.
+- `calico`: CNI Calico com CIDR custom, default-deny e opcao de liberar egress rotulado.
 - `istio`: istioctl install (perfil raijin) e injeção automática.
 - `traefik`: IngressController com TLS/ACME.
 - `kong`: Ingress/Gateway com Helm.
@@ -175,6 +175,7 @@ tail -f /var/log/raijin-server/raijin-server.log
 - `prometheus`, `grafana`, `loki`: observabilidade, dashboards e persistencia.
 - `observability-ingress`: autentica e publica Grafana/Prometheus/Alertmanager com TLS dedicado.
 - `observability-dashboards`: aplica dashboards opinativos e alertas default (Grafana/Prometheus/Alertmanager).
+- `apokolips-demo`: landing page temática para validar ingress/TLS e testar DNS externo.
 - `harness`: delegate Helm com parametros interativos.
 - `velero`: backup/restore com schedule.
 - `kafka`: deploy Bitnami via OCI.
@@ -209,6 +210,53 @@ bash "$SCRIPT_PATH"
 ```
 
 O helper garante o caminho absoluto correto independentemente de onde o pacote foi instalado.
+
+## Teste de ingress (Apokolips)
+
+O módulo [src/raijin_server/modules/apokolips_demo.py](src/raijin_server/modules/apokolips_demo.py) cria um namespace dedicado, ConfigMap com HTML, Deployment NGINX, Service e Ingress Traefik com uma landing page "Apokolips" para validar o tráfego externo.
+
+```bash
+sudo raijin-server apokolips-demo
+```
+
+Personalização rápida:
+
+- Defina `APOKOLIPS_HOST=ingress.seudominio.com` para pular o prompt de host.
+- Defina `APOKOLIPS_TLS_SECRET=nome-do-secret` caso já possua um Secret TLS pronto (caso contrário o módulo publica apenas HTTP).
+
+Recursos criados:
+
+- Namespace `apokolips-demo`
+- ConfigMap com o HTML temático
+- Deployment + Service `ClusterIP` baseado em `nginx:1.25`
+- Ingress (`ingressClassName: traefik`) apontando para o host informado
+
+Valide o acesso:
+
+```bash
+kubectl -n apokolips-demo get ingress apokolips-demo -o wide
+curl -H "Host: SEU_HOST" https://<IP_DO_LOAD_BALANCER>/ --insecure
+```
+
+Para remover rapidamente:
+
+```bash
+kubectl delete namespace apokolips-demo
+```
+
+## Liberar egress controlado para pods
+
+O módulo `calico` agora gera um `default-deny` por namespace e oferece uma política opcional
+`allow-egress-internet`. Ao responder "sim" para a pergunta de egress, basta rotular os workloads
+que precisam falar com APIs externas:
+
+```bash
+kubectl label deployment minha-api -n backend \
+	networking.raijin.dev/egress=internet
+```
+
+Somente pods com esse label terão tráfego liberado para o CIDR definido (padrão `0.0.0.0/0`).
+Isso permite manter o isolamento padrão enquanto libera acesso seletivo para integrações externas.
 
 ## Acesso remoto seguro (VPN + SSH)
 

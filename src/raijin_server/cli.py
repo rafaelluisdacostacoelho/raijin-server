@@ -15,6 +15,7 @@ from rich.table import Table
 
 from raijin_server import __version__
 from raijin_server.modules import (
+    apokolips_demo,
     bootstrap,
     calico,
     essentials,
@@ -88,6 +89,7 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "grafana": grafana.run,
     "observability_ingress": observability_ingress.run,
     "observability_dashboards": observability_dashboards.run,
+    "apokolips_demo": apokolips_demo.run,
     "loki": loki.run,
     "harness": harness.run,
     "velero": velero.run,
@@ -114,6 +116,7 @@ MODULE_DESCRIPTIONS: Dict[str, str] = {
     "grafana": "Dashboards e datasource Prometheus",
     "observability_ingress": "Ingress seguro com auth/TLS para Grafana/Prometheus/Alertmanager",
     "observability_dashboards": "Dashboards Grafana + alertas default Prometheus/Alertmanager",
+    "apokolips_demo": "Landing page Apokolips para testar ingress externo",
     "loki": "Logs centralizados Loki",
     "harness": "Delegate Harness via Helm",
     "velero": "Backup/restore de clusters",
@@ -397,6 +400,11 @@ def prometheus(ctx: typer.Context) -> None:
 @app.command()
 def grafana(ctx: typer.Context) -> None:
     _run_module(ctx, "grafana")
+
+
+@app.command(name="apokolips-demo")
+def apokolips_demo_cmd(ctx: typer.Context) -> None:
+    _run_module(ctx, "apokolips_demo")
 
 
 @app.command(name="observability-ingress")

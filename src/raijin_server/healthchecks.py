@@ -259,6 +259,60 @@ def verify_helm_chart(release: str, namespace: str, ctx: ExecutionContext) -> bo
     return check_k8s_pods_in_namespace(namespace, ctx, timeout=180)
 
 
+def verify_apokolips_demo(ctx: ExecutionContext) -> bool:
+    """Health check especifico para a landing page Apokolips."""
+    namespace = "apokolips-demo"
+    logger.info("Verificando health check: apokolips-demo")
+    typer.secho("\n=== Health Check: Apokolips Demo ===", fg=typer.colors.CYAN)
+
+    pods_ok = check_k8s_pods_in_namespace(namespace, ctx, timeout=120)
+    if not pods_ok:
+        return False
+    if ctx.dry_run:
+        return True
+
+    try:
+        import json
+
+        result = subprocess.run(
+            [
+                "kubectl",
+                "get",
+                "ingress",
+                "apokolips-demo",
+                "-n",
+                namespace,
+                "-o",
+                "json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            typer.secho("  ✗ Nao foi possivel consultar o ingress", fg=typer.colors.YELLOW)
+            logger.warning("kubectl get ingress retornou codigo != 0 para apokolips-demo")
+            return False
+
+        data = json.loads(result.stdout)
+        ingress_data = data.get("status", {}).get("loadBalancer", {}).get("ingress", [])
+        address = ""
+        if ingress_data:
+            entry = ingress_data[0]
+            address = entry.get("ip") or entry.get("hostname", "")
+
+        if address:
+            typer.secho(f"  ✓ LoadBalancer publicado ({address})", fg=typer.colors.GREEN)
+            return True
+
+        typer.secho("  ✗ LoadBalancer ainda sem IP/hostname", fg=typer.colors.YELLOW)
+        return False
+    except Exception as exc:
+        typer.secho(f"  ✗ Erro ao verificar ingress: {exc}", fg=typer.colors.YELLOW)
+        logger.error(f"Erro verificando ingress apokolips-demo: {exc}")
+        return False
+
+
 # Mapeamento de modulos para funcoes de health check
 HEALTH_CHECKS = {
     "essentials": verify_essentials,
@@ -273,6 +327,7 @@ HEALTH_CHECKS = {
     "minio": lambda ctx: verify_helm_chart("minio", "minio", ctx),
     "velero": lambda ctx: verify_helm_chart("velero", "velero", ctx),
     "kafka": lambda ctx: verify_helm_chart("kafka", "kafka", ctx),
+    "apokolips_demo": verify_apokolips_demo,
 }
 
 

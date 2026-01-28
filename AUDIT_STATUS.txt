@@ -40,6 +40,9 @@ ARQUIVOS CRIADOS
 7. src/raijin_server/scripts/pre-deploy-check.sh
    - Checklist automatizado pré-deploy
 
+8. src/raijin_server/modules/apokolips_demo.py
+   - Landing page temática para validar ingress/TLS
+
 ==========================================
 ARQUIVOS MODIFICADOS
 ==========================================
@@ -117,6 +120,9 @@ sudo raijin-server
 
 # Executar módulo
 sudo raijin-server kubernetes
+
+# Landing page Apokolips
+sudo raijin-server apokolips-demo
 
 # Dry-run
 sudo raijin-server --dry-run kubernetes

@@ -33,6 +33,12 @@ Sua arquitetura do CLI para configurar Ubuntu Server 24 foi **completamente revi
 - ✅ Merge de configurações interativas + arquivo
 - ✅ Suporte a execução não-interativa completa
 
+#### [`apokolips_demo.py`](src/raijin_server/modules/apokolips_demo.py) - Teste de Ingress
+- ✅ Gera ConfigMap + Deployment NGINX com landing page temática
+- ✅ Publica Service + Ingress (Traefik) para validar DNS/TLS externos
+- ✅ Permite customizar host e Secret TLS via variáveis de ambiente
+- ✅ Health check dedicado confirma pods e IP/hostname do LoadBalancer
+
 ### 2. **Módulos Melhorados**
 
 #### [`utils.py`](src/raijin_server/utils.py)
@@ -92,6 +98,9 @@ sudo raijin-server
 
 # Checklist pré-deploy
 bash src/raijin_server/scripts/pre-deploy-check.sh
+
+# Landing page Apokolips
+sudo raijin-server apokolips-demo
 ```
 
 ---
@@ -161,6 +170,9 @@ sudo raijin-server velero
 
 # 8. Service Mesh (opcional)
 sudo raijin-server istio
+
+# 9. Teste de ingress (opcional)
+sudo raijin-server apokolips-demo
 ```
 
 ---
