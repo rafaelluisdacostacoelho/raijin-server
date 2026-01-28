@@ -15,9 +15,11 @@ from rich.table import Table
 
 from raijin_server import __version__
 from raijin_server.modules import (
+    bootstrap,
     calico,
     essentials,
     firewall,
+    full_install,
     grafana,
     harness,
     hardening,
@@ -28,11 +30,19 @@ from raijin_server.modules import (
     loki,
     minio,
     network,
+    observability_dashboards,
+    observability_ingress,
     prometheus,
+    sanitize,
+    ssh_hardening,
     traefik,
     velero,
+    vpn,
 )
-from raijin_server.utils import ExecutionContext
+from raijin_server.utils import ExecutionContext, logger
+from raijin_server.validators import validate_system_requirements, check_module_dependencies
+from raijin_server.healthchecks import run_health_check
+from raijin_server.config import ConfigManager
 
 app = typer.Typer(add_completion=False, help="Automacao de setup e hardening para Ubuntu Server")
 console = Console()
@@ -60,10 +70,14 @@ BANNER = r"""
 """
 
 MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
+    "sanitize": sanitize.run,
+    "bootstrap": bootstrap.run,
+    "ssh_hardening": ssh_hardening.run,
     "hardening": hardening.run,
     "network": network.run,
     "essentials": essentials.run,
     "firewall": firewall.run,
+    "vpn": vpn.run,
     "kubernetes": kubernetes.run,
     "calico": calico.run,
     "istio": istio.run,
@@ -72,17 +86,24 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "minio": minio.run,
     "prometheus": prometheus.run,
     "grafana": grafana.run,
+    "observability_ingress": observability_ingress.run,
+    "observability_dashboards": observability_dashboards.run,
     "loki": loki.run,
     "harness": harness.run,
     "velero": velero.run,
     "kafka": kafka.run,
+    "full_install": full_install.run,
 }
 
 MODULE_DESCRIPTIONS: Dict[str, str] = {
+    "sanitize": "Remove instalacoes antigas de Kubernetes e prepara ambiente",
+    "bootstrap": "Instala ferramentas: helm, kubectl, istioctl, velero, containerd",
+    "ssh_hardening": "Configura usuario dedicado, chaves e politicas de SSH",
     "hardening": "Ajustes de kernel, auditd, fail2ban",
     "network": "Netplan, hostname, DNS",
     "essentials": "Pacotes basicos, repos, utilitarios",
     "firewall": "Regras UFW padrao e serviços basicos",
+    "vpn": "Provisiona WireGuard com cliente inicial",
     "kubernetes": "Instala kubeadm/kubelet/kubectl e inicializa cluster",
     "calico": "CNI Calico e politica default deny",
     "istio": "Service mesh Istio via Helm",
@@ -91,21 +112,67 @@ MODULE_DESCRIPTIONS: Dict[str, str] = {
     "minio": "Objeto storage S3-compat via Helm",
     "prometheus": "Stack kube-prometheus",
     "grafana": "Dashboards e datasource Prometheus",
+    "observability_ingress": "Ingress seguro com auth/TLS para Grafana/Prometheus/Alertmanager",
+    "observability_dashboards": "Dashboards Grafana + alertas default Prometheus/Alertmanager",
     "loki": "Logs centralizados Loki",
     "harness": "Delegate Harness via Helm",
     "velero": "Backup/restore de clusters",
     "kafka": "Cluster Kafka via OCI Helm",
+    "full_install": "Instalacao completa e automatizada do ambiente",
 }
 
 
-def _run_module(ctx: typer.Context, name: str) -> None:
+def _run_module(ctx: typer.Context, name: str, skip_validation: bool = False) -> None:
     handler = MODULES.get(name)
     if handler is None:
         raise typer.BadParameter(f"Modulo '{name}' nao encontrado.")
     exec_ctx = ctx.obj or ExecutionContext()
-    handler(exec_ctx)
-    if not exec_ctx.dry_run:
-        _mark_completed(name)
+    
+    # Verifica dependencias do modulo
+    if not skip_validation and not check_module_dependencies(name, exec_ctx):
+        typer.secho(f"Execute primeiro os modulos dependentes antes de '{name}'", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    
+    try:
+        logger.info(f"Iniciando execucao do modulo: {name}")
+        typer.secho(f"\n{'='*60}", fg=typer.colors.CYAN)
+        typer.secho(f"Executando modulo: {name}", fg=typer.colors.CYAN, bold=True)
+        typer.secho(f"{'='*60}\n", fg=typer.colors.CYAN)
+        
+        handler(exec_ctx)
+        
+        # Executa health check se disponivel
+        if not exec_ctx.dry_run:
+            typer.echo("\nExecutando health check...")
+            health_ok = run_health_check(name, exec_ctx)
+            if health_ok:
+                _mark_completed(name)
+                typer.secho(f"\n✓ Modulo '{name}' concluido com sucesso!", fg=typer.colors.GREEN, bold=True)
+                logger.info(f"Modulo '{name}' concluido com sucesso")
+            else:
+                typer.secho(f"\n⚠ Modulo '{name}' executado mas health check falhou", fg=typer.colors.YELLOW, bold=True)
+                logger.warning(f"Modulo '{name}' executado mas health check falhou")
+        else:
+            typer.secho(f"\n✓ Modulo '{name}' executado em modo dry-run", fg=typer.colors.YELLOW)
+            
+        # Mostra avisos e erros acumulados
+        if exec_ctx.warnings:
+            typer.secho(f"\nAvisos ({len(exec_ctx.warnings)}):", fg=typer.colors.YELLOW)
+            for warn in exec_ctx.warnings:
+                typer.echo(f"  ⚠ {warn}")
+        if exec_ctx.errors:
+            typer.secho(f"\nErros ({len(exec_ctx.errors)}):", fg=typer.colors.RED)
+            for err in exec_ctx.errors:
+                typer.echo(f"  ✗ {err}")
+                
+    except KeyboardInterrupt:
+        logger.warning(f"Modulo '{name}' interrompido pelo usuario")
+        typer.secho(f"\n\n⚠ Modulo '{name}' interrompido", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=130)
+    except Exception as e:
+        logger.error(f"Erro fatal no modulo '{name}': {e}", exc_info=True)
+        typer.secho(f"\n✗ Erro fatal no modulo '{name}': {e}", fg=typer.colors.RED, bold=True)
+        raise typer.Exit(code=1)
 
 
 def _print_banner() -> None:
@@ -238,15 +305,23 @@ def main(
     ctx: typer.Context,
     module: Optional[str] = typer.Option(None, "-m", "--module", help="Modulo a executar"),
     dry_run: bool = typer.Option(False, "-n", "--dry-run", help="Mostra comandos sem executa-los."),
+    skip_validation: bool = typer.Option(False, "--skip-validation", help="Pula validacoes de pre-requisitos"),
 ) -> None:
     """Mostra um menu simples quando nenhum subcomando e informado."""
 
     ctx.obj = ExecutionContext(dry_run=dry_run)
 
+    # Executa validacoes de pre-requisitos
+    if not skip_validation and not dry_run:
+        if not validate_system_requirements(ctx.obj, skip_root=False):
+            typer.secho("\nAbortando devido a pre-requisitos nao atendidos.", fg=typer.colors.RED)
+            typer.echo("Use --skip-validation para pular validacoes (nao recomendado).")
+            raise typer.Exit(code=1)
+
     if ctx.invoked_subcommand:
         return
     if module:
-        _run_module(ctx, module)
+        _run_module(ctx, module, skip_validation=skip_validation)
         return
 
     interactive_menu(ctx)
@@ -262,6 +337,11 @@ def menu(ctx: typer.Context) -> None:
 @app.command()
 def hardening(ctx: typer.Context) -> None:
     _run_module(ctx, "hardening")
+
+
+@app.command(name="ssh-hardening")
+def ssh_hardening_cmd(ctx: typer.Context) -> None:
+    _run_module(ctx, "ssh_hardening")
 
 
 @app.command()
@@ -319,6 +399,16 @@ def grafana(ctx: typer.Context) -> None:
     _run_module(ctx, "grafana")
 
 
+@app.command(name="observability-ingress")
+def observability_ingress_cmd(ctx: typer.Context) -> None:
+    _run_module(ctx, "observability_ingress")
+
+
+@app.command(name="observability-dashboards")
+def observability_dashboards_cmd(ctx: typer.Context) -> None:
+    _run_module(ctx, "observability_dashboards")
+
+
 @app.command()
 def loki(ctx: typer.Context) -> None:
     _run_module(ctx, "loki")
@@ -340,10 +430,51 @@ def kafka(ctx: typer.Context) -> None:
 
 
 @app.command()
+def vpn(ctx: typer.Context) -> None:
+    _run_module(ctx, "vpn")
+
+
+@app.command()
+def sanitize(ctx: typer.Context) -> None:
+    _run_module(ctx, "sanitize")
+
+
+@app.command(name="bootstrap")
+def bootstrap_cmd(ctx: typer.Context) -> None:
+    """Instala todas as ferramentas necessarias: helm, kubectl, istioctl, velero, containerd."""
+    _run_module(ctx, "bootstrap")
+
+
+@app.command(name="full-install")
+def full_install_cmd(ctx: typer.Context) -> None:
+    """Executa instalacao completa e automatizada do ambiente de producao."""
+    _run_module(ctx, "full_install")
+
+
+@app.command()
 def version() -> None:
     """Mostra a versao do CLI."""
 
     typer.echo(f"raijin-server {__version__}")
+
+
+@app.command()
+def generate_config(output: str = typer.Option("raijin-config.yaml", "--output", "-o", help="Arquivo de saida")) -> None:
+    """Gera template de configuracao YAML/JSON."""
+    
+    ConfigManager.create_template(output)
+
+
+@app.command()
+def validate(skip_root: bool = typer.Option(False, "--skip-root", help="Pula validacao de root")) -> None:
+    """Valida pre-requisitos do sistema sem executar modulos."""
+    
+    ctx = ExecutionContext(dry_run=False)
+    if validate_system_requirements(ctx, skip_root=skip_root):
+        typer.secho("\n✓ Sistema validado com sucesso!", fg=typer.colors.GREEN, bold=True)
+    else:
+        typer.secho("\n✗ Sistema nao atende pre-requisitos", fg=typer.colors.RED, bold=True)
+        raise typer.Exit(code=1)
 
 
 def main_entrypoint() -> None:

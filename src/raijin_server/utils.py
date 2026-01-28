@@ -2,15 +2,37 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
+import platform
 import shlex
 import shutil
 import subprocess
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Mapping, MutableMapping, Sequence
 
 import typer
+
+# Configuracao de logging estruturado
+LOG_DIR = Path("/var/log/raijin-server")
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_FILE = LOG_DIR / "raijin-server.log"
+except PermissionError:
+    LOG_FILE = Path.home() / ".raijin-server.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger('raijin-server')
 
 
 @dataclass
@@ -19,6 +41,11 @@ class ExecutionContext:
 
     dry_run: bool = False
     assume_yes: bool = True
+    max_retries: int = 3
+    retry_delay: int = 5
+    timeout: int = 300
+    errors: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
 
 
 def _format_cmd(cmd: Sequence[str] | str) -> str:
@@ -37,27 +64,77 @@ def run_cmd(
     use_shell: bool = False,
     mask_output: bool = False,
     display_override: str | None = None,
-) -> None:
+    retries: int | None = None,
+) -> subprocess.CompletedProcess:
     """Executa comando exibindo (ou mascarando) a linha usada.
 
     Quando `dry_run` esta ativo, apenas mostra a linha sem executar.
+    Suporta retry automatico para comandos que podem falhar temporariamente.
     """
 
     display = display_override or _format_cmd(cmd)
     prefix = "[dry-run] " if ctx.dry_run else ""
     if mask_output:
+        logger.info("Executando comando com argumentos sensiveis (masked)")
         typer.echo(f"{prefix}[masked] comando executado (argumentos sensiveis ocultos)")
     else:
+        logger.info(f"Executando: {display}")
         typer.echo(f"{prefix}$ {display}")
 
     if ctx.dry_run:
-        return
+        return subprocess.CompletedProcess(args=cmd, returncode=0)
 
     merged_env: MutableMapping[str, str] = os.environ.copy()
     if env:
         merged_env.update(env)
 
-    subprocess.run(cmd, shell=use_shell, check=check, cwd=cwd, env=merged_env)
+    max_attempts = retries if retries is not None else (ctx.max_retries if check else 1)
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = subprocess.run(
+                cmd,
+                shell=use_shell,
+                check=check,
+                cwd=cwd,
+                env=merged_env,
+                timeout=ctx.timeout,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0 or not check:
+                return result
+        except subprocess.TimeoutExpired as e:
+            last_error = e
+            msg = f"Comando timeout apos {ctx.timeout}s (tentativa {attempt}/{max_attempts})"
+            logger.warning(msg)
+            ctx.warnings.append(msg)
+            if attempt < max_attempts:
+                time.sleep(ctx.retry_delay)
+        except subprocess.CalledProcessError as e:
+            last_error = e
+            msg = f"Comando falhou com codigo {e.returncode} (tentativa {attempt}/{max_attempts})"
+            logger.error(f"{msg}: {e.stderr if hasattr(e, 'stderr') else ''}")
+            if attempt < max_attempts:
+                typer.secho(f"Tentando novamente em {ctx.retry_delay}s...", fg=typer.colors.YELLOW)
+                time.sleep(ctx.retry_delay)
+            else:
+                ctx.errors.append(msg)
+                if check:
+                    raise
+        except Exception as e:
+            last_error = e
+            msg = f"Erro inesperado: {type(e).__name__}: {e}"
+            logger.error(msg)
+            ctx.errors.append(msg)
+            if check:
+                raise
+
+    if check and last_error:
+        raise last_error
+
+    return subprocess.CompletedProcess(args=cmd, returncode=1)
 
 
 def require_root(ctx: ExecutionContext) -> None:

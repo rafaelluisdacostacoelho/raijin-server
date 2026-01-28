@@ -39,6 +39,14 @@ def run(ctx: ExecutionContext) -> None:
     require_root(ctx)
     typer.echo("Instalando e preparando Kubernetes (kubeadm/kubelet/kubectl)...")
 
+    # Verifica se cluster ja foi inicializado
+    kubeconfig_exists = Path("/etc/kubernetes/admin.conf").exists()
+    if kubeconfig_exists and not ctx.dry_run:
+        typer.secho("⚠ Cluster Kubernetes ja parece estar inicializado.", fg=typer.colors.YELLOW)
+        if not typer.confirm("Deseja continuar mesmo assim? (pode causar problemas)"):
+            typer.echo("Operacao cancelada pelo usuario.")
+            return
+
     _cleanup_old_repo(ctx)
     apt_update(ctx)
     apt_install(
@@ -60,47 +68,63 @@ def run(ctx: ExecutionContext) -> None:
     key_path = Path("/etc/apt/keyrings/kubernetes-apt-keyring.gpg")
     repo_entry = f"deb [signed-by={key_path}] https://pkgs.k8s.io/core:/stable:/{repo_version}/deb/ /"
 
-    typer.echo("Baixando chave GPG do Kubernetes (pkgs.k8s.io)...")
-    run_cmd(
-        [
-            "curl",
-            "-fL",
-            "--retry",
-            "3",
-            "--retry-delay",
-            "2",
-            "-o",
-            str(key_tmp),
-            key_url,
-        ],
-        ctx,
-    )
+    # Verifica se ja tem a chave instalada
+    if not key_path.exists() or ctx.dry_run:
+        typer.echo("Baixando chave GPG do Kubernetes (pkgs.k8s.io)...")
+        run_cmd(
+            [
+                "curl",
+                "-fsSL",
+                "--retry",
+                "3",
+                "--retry-delay",
+                "2",
+                "-o",
+                str(key_tmp),
+                key_url,
+            ],
+            ctx,
+        )
 
-    run_cmd(["mkdir", "-p", "/etc/apt/keyrings"], ctx)
+        run_cmd(["mkdir", "-p", "/etc/apt/keyrings"], ctx)
 
-    if not ctx.dry_run:
-        if not key_tmp.exists() or key_tmp.stat().st_size == 0:
-            typer.secho("Falha ao baixar chave GPG do Kubernetes. Verifique conectividade.", fg=typer.colors.RED)
-            raise typer.Exit(code=1)
-        run_cmd(["gpg", "--dearmor", "-o", str(key_path), str(key_tmp)], ctx)
-        if not key_path.exists() or key_path.stat().st_size == 0:
-            typer.secho("Chave GPG nao foi gravada corretamente.", fg=typer.colors.RED)
-            raise typer.Exit(code=1)
+        if not ctx.dry_run:
+            if not key_tmp.exists() or key_tmp.stat().st_size == 0:
+                typer.secho("Falha ao baixar chave GPG do Kubernetes. Verifique conectividade.", fg=typer.colors.RED)
+                raise typer.Exit(code=1)
+            run_cmd(["gpg", "--yes", "--dearmor", "-o", str(key_path), str(key_tmp)], ctx)
+            if not key_path.exists() or key_path.stat().st_size == 0:
+                typer.secho("Chave GPG nao foi gravada corretamente.", fg=typer.colors.RED)
+                raise typer.Exit(code=1)
+            key_tmp.unlink(missing_ok=True)
+    else:
+        typer.echo("Chave GPG do Kubernetes ja existe, pulando download.")
 
-    run_cmd(
-        f'echo "{repo_entry}" | tee /etc/apt/sources.list.d/kubernetes.list',
-        ctx,
-        use_shell=True,
-    )
+    repo_file = Path("/etc/apt/sources.list.d/kubernetes.list")
+    if not repo_file.exists() or ctx.dry_run:
+        run_cmd(
+            f'echo "{repo_entry}" | tee /etc/apt/sources.list.d/kubernetes.list',
+            ctx,
+            use_shell=True,
+        )
 
     apt_update(ctx)
     apt_install(["kubelet", "kubeadm", "kubectl"], ctx)
 
+    # Hold das versoes para evitar upgrades automaticos
+    run_cmd(["apt-mark", "hold", "kubelet", "kubeadm", "kubectl"], ctx, check=False)
+
     # Configura containerd com SystemdCgroup.
     run_cmd(["mkdir", "-p", "/etc/containerd"], ctx)
-    run_cmd("containerd config default > /etc/containerd/config.toml", ctx, use_shell=True)
+    
+    # Verifica se config do containerd ja existe
+    containerd_config = Path("/etc/containerd/config.toml")
+    if not containerd_config.exists() or ctx.dry_run:
+        run_cmd("containerd config default > /etc/containerd/config.toml", ctx, use_shell=True)
+    
+    # Aplica SystemdCgroup
     run_cmd("sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml", ctx, use_shell=True)
-    run_cmd(["systemctl", "restart", "containerd"], ctx)
+    run_cmd(["systemctl", "restart", "containerd"], ctx, check=False)
 
     enable_service("containerd", ctx)
     enable_service("kubelet", ctx)
@@ -109,6 +133,7 @@ def run(ctx: ExecutionContext) -> None:
     write_file(Path("/etc/sysctl.d/99-kubernetes.conf"), "net.ipv4.ip_forward=1\n", ctx)
     run_cmd(["sysctl", "-w", "net.ipv4.ip_forward=1"], ctx, check=False)
 
+    # Prompts de configuracao
     pod_cidr = typer.prompt("Pod CIDR", default="10.244.0.0/16")
     service_cidr = typer.prompt("Service CIDR", default="10.96.0.0/12")
     cluster_name = typer.prompt("Nome do cluster", default="raijin")
