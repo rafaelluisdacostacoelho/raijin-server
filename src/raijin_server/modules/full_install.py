@@ -8,6 +8,7 @@ from raijin_server.utils import ExecutionContext, require_root
 from raijin_server.modules import (
     bootstrap,
     calico,
+    cert_manager,
     essentials,
     firewall,
     grafana,
@@ -18,6 +19,7 @@ from raijin_server.modules import (
     observability_dashboards,
     observability_ingress,
     prometheus,
+    secrets,
     sanitize,
     traefik,
 )
@@ -34,6 +36,8 @@ INSTALL_SEQUENCE = [
     ("firewall", firewall.run, "Firewall UFW", None),
     ("kubernetes", kubernetes.run, "Cluster Kubernetes (kubeadm)", None),
     ("calico", calico.run, "CNI Calico + NetworkPolicy", None),
+    ("cert_manager", cert_manager.run, "cert-manager + ClusterIssuer ACME", None),
+    ("secrets", secrets.run, "Sealed-Secrets + External-Secrets", None),
     ("prometheus", prometheus.run, "Monitoramento Prometheus", None),
     ("grafana", grafana.run, "Dashboards Grafana", None),
     ("loki", loki.run, "Logs centralizados Loki", None),

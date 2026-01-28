@@ -184,6 +184,7 @@ def check_module_dependencies(module: str, ctx: ExecutionContext) -> bool:
     dependencies = {
         "kubernetes": ["essentials", "network", "firewall"],
         "calico": ["kubernetes"],
+        "cert_manager": ["kubernetes", "traefik"],
         "istio": ["kubernetes", "calico"],
         "traefik": ["kubernetes"],
         "kong": ["kubernetes"],
@@ -191,6 +192,7 @@ def check_module_dependencies(module: str, ctx: ExecutionContext) -> bool:
         "prometheus": ["kubernetes"],
         "grafana": ["kubernetes", "prometheus"],
         "loki": ["kubernetes"],
+        "secrets": ["kubernetes"],
         "harness": ["kubernetes"],
         "velero": ["kubernetes"],
         "kafka": ["kubernetes"],

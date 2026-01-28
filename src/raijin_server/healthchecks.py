@@ -10,6 +10,10 @@ import typer
 
 from raijin_server.utils import ExecutionContext, logger
 
+SEALED_NS = "kube-system"
+ESO_NS = "external-secrets"
+CERT_NS = "cert-manager"
+
 
 def wait_for_condition(
     check_fn: Callable[[], bool],
@@ -259,6 +263,21 @@ def verify_helm_chart(release: str, namespace: str, ctx: ExecutionContext) -> bo
     return check_k8s_pods_in_namespace(namespace, ctx, timeout=180)
 
 
+def verify_cert_manager(ctx: ExecutionContext) -> bool:
+    """Health check para cert-manager."""
+    return verify_helm_chart("cert-manager", CERT_NS, ctx)
+
+
+def verify_secrets(ctx: ExecutionContext) -> bool:
+    """Health check para sealed-secrets e external-secrets."""
+    typer.secho("\n=== Health Check: Secrets ===", fg=typer.colors.CYAN)
+
+    sealed_ok = verify_helm_chart("sealed-secrets", SEALED_NS, ctx)
+    eso_ok = verify_helm_chart("external-secrets", ESO_NS, ctx)
+
+    return sealed_ok and eso_ok
+
+
 def verify_apokolips_demo(ctx: ExecutionContext) -> bool:
     """Health check especifico para a landing page Apokolips."""
     namespace = "apokolips-demo"
@@ -327,6 +346,8 @@ HEALTH_CHECKS = {
     "minio": lambda ctx: verify_helm_chart("minio", "minio", ctx),
     "velero": lambda ctx: verify_helm_chart("velero", "velero", ctx),
     "kafka": lambda ctx: verify_helm_chart("kafka", "kafka", ctx),
+    "cert_manager": verify_cert_manager,
+    "secrets": verify_secrets,
     "apokolips_demo": verify_apokolips_demo,
 }
 

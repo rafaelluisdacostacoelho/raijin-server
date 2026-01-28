@@ -77,20 +77,6 @@ sudo raijin-server --skip-validation kubernetes
 ```
 
 ### Automação via Arquivo de Configuração
-```bash
-# Gerar template de configuração
-ra✅ Validações de pré-requisitos e health-check por módulo
-- ✅ Gestão automática de dependências entre módulos
-- ✅ Sistema de logging estruturado e persistente
-- ✅ Retry automático e timeouts configuráveis
-- ✅ Configuração via arquivo YAML/JSON
-- ✅ Provisionar ingress seguro para Grafana/Prometheus/Alertmanager (modulo `observability-ingress`)
-- ✅ Dashboards e alertas opinativos prontos para uso (modulo `observability-dashboards`)
-- ⏳ Suporte a sealed-secrets/external-secrets para credenciais
-- ⏳ Testes automatizados (pytest) e linters
-- ⏳ Rollback automático em falhas
-- ⏳ Modo de instalação mínima vs completa
-
 ## Documentação Adicional
 
 - **[AUDIT.md](AUDIT.md)**: Relatório completo de auditoria e melhorias implementadas
@@ -112,6 +98,8 @@ sudo raijin-server firewall
 # 3. Kubernetes
 sudo raijin-server kubernetes
 sudo raijin-server calico
+sudo raijin-server secrets
+sudo raijin-server cert-manager
 
 # 4. Ingress (escolha um)
 sudo raijin-server traefik
@@ -151,9 +139,6 @@ sudo raijin-server full-install
 
 O módulo detecta automaticamente se já existe um Netplan com IP estático e pergunta
 se deseja pular. Se executar manualmente, basta responder "não" quando perguntado.
-# Executar com configuração
-sudo raijin-server --config production.yaml kubernetes
-```
 
 ### Comandos Úteis
 ```bash
@@ -184,6 +169,8 @@ tail -f /var/log/raijin-server/raijin-server.log
 - `vpn`: provisiona WireGuard (servidor + cliente inicial) e libera firewall.
 - `kubernetes`: kubeadm init, containerd SystemdCgroup, kubeconfig.
 - `calico`: CNI Calico com CIDR custom, default-deny e opcao de liberar egress rotulado.
+- `cert_manager`: instala cert-manager e ClusterIssuer ACME (HTTP-01/DNS-01).
+- `secrets`: instala sealed-secrets e external-secrets via Helm.
 - `istio`: istioctl install (perfil raijin) e injeção automática.
 - `traefik`: IngressController com TLS/ACME.
 - `kong`: Ingress/Gateway com Helm.
@@ -202,7 +189,7 @@ tail -f /var/log/raijin-server/raijin-server.log
 - ✅ Validacoes de pre-requisitos e health-check por modulo.
 - ✅ Provisionar ingress seguro para Grafana/Prometheus/Alertmanager (modulo `observability-ingress`).
 - ✅ Dashboards e alertas opinativos prontos para uso (modulo `observability-dashboards`).
-- ⏳ Suporte a sealed-secrets/external-secrets para credenciais.
+- ✅ Suporte a sealed-secrets/external-secrets para credenciais.
 - ⏳ Testes automatizados (pytest) e linters.
 
 ## Proximos passos sugeridos
@@ -273,6 +260,60 @@ kubectl label deployment minha-api -n backend \
 
 Somente pods com esse label terão tráfego liberado para o CIDR definido (padrão `0.0.0.0/0`).
 Isso permite manter o isolamento padrão enquanto libera acesso seletivo para integrações externas.
+
+## Automacao de segredos (sealed-secrets + external-secrets)
+
+Execute o modulo `secrets` para instalar os controladores:
+
+```bash
+sudo raijin-server secrets
+```
+
+Passos realizados:
+- Instala `sealed-secrets` (namespace padrao: `kube-system`)
+- Instala `external-secrets` (namespace padrao: `external-secrets`, com CRDs)
+- Opcional: exporta o certificado publico do sealed-secrets para gerar manifests lacrados via `kubeseal`
+
+Dicas rapidas:
+- Exportar certificado depois: `kubectl -n kube-system get secret -l sealedsecrets.bitnami.com/sealed-secrets-key -o jsonpath='{.items[0].data.tls\.crt}' | base64 -d > sealed-secrets-cert.pem`
+- Gerar sealed secret local: `kubeseal --controller-namespace kube-system --controller-name sealed-secrets < secret.yaml > sealed.yaml`
+- ESO: crie um `SecretStore`/`ClusterSecretStore` apontando para seu backend (AWS/GCP/Vault) e um `ExternalSecret` referenciando as chaves.
+
+### Validar o modulo `secrets`
+
+```bash
+# Status dos releases
+helm status sealed-secrets -n kube-system
+helm status external-secrets -n external-secrets
+
+# Pods prontos
+kubectl get pods -n kube-system -l name=sealed-secrets
+kubectl get pods -n external-secrets -l app.kubernetes.io/name=external-secrets
+
+# Health check integrado
+raijin-server --health-check secrets
+```
+
+### Exemplos (prontos para aplicar)
+
+- SecretStore AWS Secrets Manager: [examples/secrets/secretstore-aws-sm.yaml](examples/secrets/secretstore-aws-sm.yaml)
+- ExternalSecret AWS Secrets Manager: [examples/secrets/externalsecret-aws-sm.yaml](examples/secrets/externalsecret-aws-sm.yaml)
+- SecretStore Vault AppRole: [examples/secrets/secretstore-vault-approle.yaml](examples/secrets/secretstore-vault-approle.yaml)
+- ExternalSecret Vault: [examples/secrets/externalsecret-vault.yaml](examples/secrets/externalsecret-vault.yaml)
+
+Notas rápidas:
+- Para AWS/IRSA: crie um ServiceAccount (`apps/eso-aws`) anotado com o role IAM e garanta a policy para leitura dos secrets.
+- Para Vault: crie o Secret `vault-approle-secret` com `secretId` e ajuste `ROLE_ID_AQUI`. Ajuste `server`/`path` conforme seu mount de KV.
+- Aplique na ordem: SecretStore ➜ ExternalSecret ➜ valide `kubectl get secret` no namespace do app.
+
+## Testes e lint
+
+Ambiente de dev:
+```bash
+python -m pip install -e .[dev]
+pytest
+ruff check src tests
+```
 
 ## Acesso remoto seguro (VPN + SSH)
 

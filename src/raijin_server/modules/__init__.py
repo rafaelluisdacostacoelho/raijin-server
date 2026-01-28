@@ -24,10 +24,12 @@ __all__ = [
     "observability_ingress",
     "observability_dashboards",
     "apokolips_demo",
+    "cert_manager",
+    "secrets",
     "full_install",
 ]
 
 from raijin_server.modules import calico, essentials, firewall, grafana, harness, hardening, istio
 from raijin_server.modules import kafka, kong, kubernetes, loki, minio, network, observability_dashboards
-from raijin_server.modules import observability_ingress, prometheus, traefik, velero, apokolips_demo
+from raijin_server.modules import observability_ingress, prometheus, traefik, velero, apokolips_demo, secrets, cert_manager
 from raijin_server.modules import bootstrap, full_install, sanitize, ssh_hardening, vpn
