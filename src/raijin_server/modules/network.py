@@ -1,7 +1,17 @@
-"""Configuracao de rede (IP fixo) via Netplan."""
+"""Configuracao de rede (IP fixo) via Netplan.
+
+Este modulo eh OPCIONAL quando:
+- IP fixo ja foi configurado no provedor ISP (ex: Ibi Internet Empresarial)
+- IP estatico foi definido manualmente durante instalacao do SO
+- Netplan ja possui configuracao funcional
+
+Set RAIJIN_SKIP_NETWORK=1 para pular automaticamente em automacoes.
+"""
 
 import os
+import subprocess
 from pathlib import Path
+from typing import Optional
 
 import typer
 
@@ -18,9 +28,93 @@ def _is_wsl() -> bool:
         return False
 
 
+def _get_current_ip() -> Optional[str]:
+    """Retorna o IP principal atual do sistema (excluindo loopback e docker)."""
+    try:
+        result = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", "scope", "global"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        for line in result.stdout.strip().split("\n"):
+            parts = line.split()
+            if len(parts) >= 4:
+                iface = parts[1]
+                # Ignora interfaces virtuais (docker, veth, br-, virbr, etc.)
+                if any(iface.startswith(p) for p in ("docker", "veth", "br-", "virbr", "cni", "flannel")):
+                    continue
+                ip_cidr = parts[3]
+                return ip_cidr
+    except Exception:
+        pass
+    return None
+
+
+def _has_static_netplan() -> bool:
+    """Verifica se ja existe configuracao Netplan com IP estatico."""
+    netplan_dir = Path("/etc/netplan")
+    if not netplan_dir.exists():
+        return False
+    for f in netplan_dir.glob("*.yaml"):
+        try:
+            content = f.read_text()
+            if "dhcp4: false" in content or "dhcp4: no" in content:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def run(ctx: ExecutionContext) -> None:
     require_root(ctx)
-    typer.echo("Configurando IP fixo (Netplan)...")
+
+    # Permite pular via variavel de ambiente (para automacao)
+    if os.environ.get("RAIJIN_SKIP_NETWORK", "").strip() in ("1", "true", "yes"):
+        typer.secho(
+            "RAIJIN_SKIP_NETWORK=1 detectado. Pulando configuracao de rede.",
+            fg=typer.colors.YELLOW,
+        )
+        return
+
+    current_ip = _get_current_ip()
+    has_static = _has_static_netplan()
+
+    # Se ja tem IP estatico configurado, oferece pular
+    if current_ip and has_static:
+        typer.secho(
+            f"\n✓ IP estatico detectado: {current_ip}",
+            fg=typer.colors.GREEN,
+        )
+        typer.secho(
+            "  Parece que a rede ja esta configurada (Netplan com dhcp4: false).",
+            fg=typer.colors.GREEN,
+        )
+        typer.echo("")
+        if not typer.confirm(
+            "Deseja reconfigurar a rede mesmo assim? (NAO recomendado se ja funciona)",
+            default=False,
+        ):
+            typer.secho("Pulando configuracao de rede.", fg=typer.colors.CYAN)
+            return
+    elif current_ip:
+        typer.secho(
+            f"\n✓ IP atual: {current_ip}",
+            fg=typer.colors.GREEN,
+        )
+        typer.echo(
+            "  Se este IP foi configurado pelo seu provedor ISP ou durante a instalacao,\n"
+            "  voce pode pular este passo."
+        )
+        typer.echo("")
+        if not typer.confirm(
+            "Deseja configurar IP estatico via Netplan?",
+            default=True,
+        ):
+            typer.secho("Pulando configuracao de rede.", fg=typer.colors.CYAN)
+            return
+
+    typer.echo("\nConfigurando IP fixo (Netplan)...")
 
     wsl = _is_wsl()
     if wsl:

@@ -106,7 +106,7 @@ sudo raijin-server validate
 # 2. Base do sistema
 sudo raijin-server essentials
 sudo raijin-server hardening
-sudo raijin-server network
+sudo raijin-server network   # OPCIONAL: pule se IP já configurado via provedor ISP
 sudo raijin-server firewall
 
 # 3. Kubernetes
@@ -135,6 +135,22 @@ sudo raijin-server velero
 # 8. Service Mesh (opcional)
 sudo raijin-server istio
 ```
+
+### IP Estático (pular se já configurado)
+
+O módulo `network` é **opcional** quando:
+- O IP fixo foi configurado pelo provedor ISP (ex: Ibi Internet Empresarial)
+- O IP estático foi definido durante a instalação do Ubuntu Server
+- A rede já está funcionando corretamente
+
+Para pular automaticamente em automações:
+```bash
+export RAIJIN_SKIP_NETWORK=1
+sudo raijin-server full-install
+```
+
+O módulo detecta automaticamente se já existe um Netplan com IP estático e pergunta
+se deseja pular. Se executar manualmente, basta responder "não" quando perguntado.
 # Executar com configuração
 sudo raijin-server --config production.yaml kubernetes
 ```
@@ -163,7 +179,7 @@ tail -f /var/log/raijin-server/raijin-server.log
 - `ssh-hardening`: cria usuario dedicado, aplica politicas seguras de SSH e integra ao Fail2ban.
 - `hardening`: fail2ban, unattended-upgrades, sysctl.
 - `essentials`: pacotes base (curl, git, jq, etc.) e NTP.
-- `network`: Netplan com IP fixo e DNS.
+- `network`: Netplan com IP fixo e DNS. **OPCIONAL** se IP já configurado pelo provedor ISP.
 - `firewall`: UFW com regras para SSH/HTTP/HTTPS/K8s.
 - `vpn`: provisiona WireGuard (servidor + cliente inicial) e libera firewall.
 - `kubernetes`: kubeadm init, containerd SystemdCgroup, kubeconfig.

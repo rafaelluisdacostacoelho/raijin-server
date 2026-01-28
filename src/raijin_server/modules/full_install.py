@@ -1,5 +1,7 @@
 """Instalacao completa e automatizada do ambiente produtivo."""
 
+import os
+
 import typer
 
 from raijin_server.utils import ExecutionContext, require_root
@@ -22,21 +24,22 @@ from raijin_server.modules import (
 
 
 # Ordem de execucao dos modulos para instalacao completa
+# Modulos marcados com skip_env podem ser pulados via variavel de ambiente
 INSTALL_SEQUENCE = [
-    ("sanitize", sanitize.run, "Limpeza total de instalacoes anteriores"),
-    ("bootstrap", bootstrap.run, "Instalacao de ferramentas (helm, kubectl, containerd, etc.)"),
-    ("essentials", essentials.run, "Pacotes essenciais e NTP"),
-    ("hardening", hardening.run, "Seguranca do sistema (fail2ban, sysctl, auditd)"),
-    ("network", network.run, "Configuracao de rede (IP fixo)"),
-    ("firewall", firewall.run, "Firewall UFW"),
-    ("kubernetes", kubernetes.run, "Cluster Kubernetes (kubeadm)"),
-    ("calico", calico.run, "CNI Calico + NetworkPolicy"),
-    ("prometheus", prometheus.run, "Monitoramento Prometheus"),
-    ("grafana", grafana.run, "Dashboards Grafana"),
-    ("loki", loki.run, "Logs centralizados Loki"),
-    ("traefik", traefik.run, "Ingress Controller Traefik"),
-    ("observability_ingress", observability_ingress.run, "Ingress seguro para Grafana/Prometheus/Alertmanager"),
-    ("observability_dashboards", observability_dashboards.run, "Dashboards opinativos e alertas"),
+    ("sanitize", sanitize.run, "Limpeza total de instalacoes anteriores", None),
+    ("bootstrap", bootstrap.run, "Instalacao de ferramentas (helm, kubectl, containerd, etc.)", None),
+    ("essentials", essentials.run, "Pacotes essenciais e NTP", None),
+    ("hardening", hardening.run, "Seguranca do sistema (fail2ban, sysctl, auditd)", None),
+    ("network", network.run, "Configuracao de rede (IP fixo) - OPCIONAL", "RAIJIN_SKIP_NETWORK"),
+    ("firewall", firewall.run, "Firewall UFW", None),
+    ("kubernetes", kubernetes.run, "Cluster Kubernetes (kubeadm)", None),
+    ("calico", calico.run, "CNI Calico + NetworkPolicy", None),
+    ("prometheus", prometheus.run, "Monitoramento Prometheus", None),
+    ("grafana", grafana.run, "Dashboards Grafana", None),
+    ("loki", loki.run, "Logs centralizados Loki", None),
+    ("traefik", traefik.run, "Ingress Controller Traefik", None),
+    ("observability_ingress", observability_ingress.run, "Ingress seguro para Grafana/Prometheus/Alertmanager", None),
+    ("observability_dashboards", observability_dashboards.run, "Dashboards opinativos e alertas", None),
 ]
 
 
@@ -60,9 +63,19 @@ def run(ctx: ExecutionContext) -> None:
 
     # Mostra sequencia de instalacao
     typer.echo("Sequencia de instalacao:")
-    for i, (name, _, desc) in enumerate(INSTALL_SEQUENCE, 1):
-        typer.echo(f"  {i:2}. {name:15} - {desc}")
+    for i, (name, _, desc, skip_env) in enumerate(INSTALL_SEQUENCE, 1):
+        suffix = ""
+        if skip_env and os.environ.get(skip_env, "").strip() in ("1", "true", "yes"):
+            suffix = " [SKIP]"
+        typer.echo(f"  {i:2}. {name:25} - {desc}{suffix}")
 
+    typer.echo("")
+    typer.secho(
+        "Nota: O modulo 'network' eh OPCIONAL se o IP fixo ja foi configurado\n"
+        "      pelo provedor ISP ou durante instalacao do SO.\n"
+        "      Set RAIJIN_SKIP_NETWORK=1 para pular automaticamente.",
+        fg=typer.colors.YELLOW,
+    )
     typer.echo("")
 
     if not ctx.dry_run:
@@ -73,8 +86,15 @@ def run(ctx: ExecutionContext) -> None:
     total = len(INSTALL_SEQUENCE)
     failed = []
     succeeded = []
+    skipped = []
 
-    for i, (name, handler, desc) in enumerate(INSTALL_SEQUENCE, 1):
+    for i, (name, handler, desc, skip_env) in enumerate(INSTALL_SEQUENCE, 1):
+        # Verifica se modulo deve ser pulado via env
+        if skip_env and os.environ.get(skip_env, "").strip() in ("1", "true", "yes"):
+            skipped.append(name)
+            typer.secho(f"⏭ {name} pulado via {skip_env}=1", fg=typer.colors.YELLOW)
+            continue
+
         typer.secho(
             f"\n{'='*60}",
             fg=typer.colors.CYAN,
@@ -112,6 +132,11 @@ def run(ctx: ExecutionContext) -> None:
     if succeeded:
         typer.secho(f"\n✓ Modulos instalados com sucesso ({len(succeeded)}):", fg=typer.colors.GREEN)
         for name in succeeded:
+            typer.echo(f"    - {name}")
+
+    if skipped:
+        typer.secho(f"\n⏭ Modulos pulados ({len(skipped)}):", fg=typer.colors.YELLOW)
+        for name in skipped:
             typer.echo(f"    - {name}")
 
     if failed:
