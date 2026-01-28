@@ -60,7 +60,7 @@ sudo raijin-server validate
 - `src/raijin_server/healthchecks.py`: Health checks pós-instalação.
 - `src/raijin_server/config.py`: Gerenciamento de configuração via arquivo.
 - `src/raijin_server/modules/`: Automações por tópico (hardening, network, essentials, firewall, kubernetes, calico, istio, traefik, kong, minio, prometheus, grafana, loki, harness, velero, kafka).
-- `scripts/`: Espaço para shells e templates auxiliares.
+- `src/raijin_server/scripts/`: Shells empacotados usados pelos módulos e scripts auxiliares.
 - `ARCHITECTURE.md`: Visão do desenho técnico.
 - `AUDIT.md`: Relatório completo de auditoria e melhorias.
 - `SECURITY.md`: Como reportar vulnerabilidades
@@ -152,7 +152,7 @@ tail -f /var/log/raijin-server/raijin-server.log
 
 - `src/raijin_server/cli.py`: CLI principal com Typer, banner e `--dry-run`.
 - `src/raijin_server/modules/`: automacoes por topico (hardening, network, essentials, firewall, kubernetes, calico, istio, traefik, kong, minio, prometheus, grafana, loki, harness, velero, kafka).
-- `scripts/`: espaco para shells e templates.
+- `src/raijin_server/scripts/`: shells embarcados acessíveis via `raijin_server.utils.resolve_script_path()`.
 - `ARCHITECTURE.md`: visao do desenho atual.
 - `SECURITY.md`: como reportar e pensar seguranca.
 
@@ -192,7 +192,23 @@ tail -f /var/log/raijin-server/raijin-server.log
 
 - Suporte a sealed-secrets/external-secrets para credenciais sensíveis.
 - Adicionar validacoes e testes (pytest, linters, testcontainers).
-- Empacotar scripts auxiliares em `scripts/` e referencia-los nos modulos.
+
+## Scripts embarcados
+
+Todos os helpers shell agora vivem em `src/raijin_server/scripts/` e acompanham o pacote Python.
+Para invocá-los dentro de um módulo (ou mesmo após instalar via `pip`), use o helper `resolve_script_path()`:
+
+```bash
+SCRIPT_PATH=$(python - <<'PY'
+from raijin_server.utils import resolve_script_path
+print(resolve_script_path('pre-deploy-check.sh'))
+PY
+)
+
+bash "$SCRIPT_PATH"
+```
+
+O helper garante o caminho absoluto correto independentemente de onde o pacote foi instalado.
 
 ## Acesso remoto seguro (VPN + SSH)
 

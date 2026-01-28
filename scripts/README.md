@@ -1,6 +1,18 @@
 # Scripts Utilitários - Raijin Server
 
-Este diretório contém scripts auxiliares para instalação, validação e manutenção do raijin-server.
+Este diretório documenta os scripts auxiliares inclusos no pacote em `src/raijin_server/scripts/`.
+Eles são instalados junto com o CLI, então você pode chamá-los mesmo fora do repositório.
+
+## Recuperar caminho em runtime
+
+```bash
+python - <<'PY'
+from raijin_server.utils import resolve_script_path
+print(resolve_script_path('pre-deploy-check.sh'))
+PY
+```
+
+Use o caminho retornado para executar o shell desejado ou para referenciá-lo a partir de módulos Python.
 
 ## Scripts Disponíveis
 
@@ -8,7 +20,7 @@ Este diretório contém scripts auxiliares para instalação, validação e manu
 **Instalação rápida do CLI**
 
 ```bash
-bash scripts/install.sh
+bash src/raijin_server/scripts/install.sh
 ```
 
 Opções:
@@ -22,7 +34,7 @@ Opções:
 **Checklist de pré-requisitos antes do deploy**
 
 ```bash
-bash scripts/pre-deploy-check.sh
+bash src/raijin_server/scripts/pre-deploy-check.sh
 ```
 
 Valida:
@@ -43,7 +55,7 @@ Valida:
 **Smoke tests para servidor provisionado**
 
 ```bash
-sudo bash scripts/checklist.sh
+sudo bash src/raijin_server/scripts/checklist.sh
 ```
 
 Verifica:
@@ -67,16 +79,16 @@ Verifica:
 
 ```bash
 # 1. Instalar
-bash scripts/install.sh
+bash src/raijin_server/scripts/install.sh
 
 # 2. Validar pré-requisitos
-bash scripts/pre-deploy-check.sh
+bash src/raijin_server/scripts/pre-deploy-check.sh
 
 # 3. Executar deploy
 sudo raijin-server
 
 # 4. Verificar instalação
-sudo bash scripts/checklist.sh
+sudo bash src/raijin_server/scripts/checklist.sh
 ```
 
 ---
@@ -85,9 +97,9 @@ sudo bash scripts/checklist.sh
 
 Para adicionar novos scripts auxiliares:
 
-1. Criar arquivo em `scripts/`
+1. Criar arquivo em `src/raijin_server/scripts/`
 2. Adicionar shebang: `#!/bin/bash`
-3. Tornar executável: `chmod +x scripts/seu-script.sh`
+3. Tornar executável: `chmod +x src/raijin_server/scripts/seu-script.sh`
 4. Documentar neste README
 
 **Exemplo:**
@@ -114,7 +126,12 @@ Os scripts respeitam as seguintes variáveis:
 **Exemplo:**
 ```bash
 export RAIJIN_STATE_DIR="$HOME/.raijin"
-bash scripts/pre-deploy-check.sh
+SCRIPT=$(python - <<'PY'
+from raijin_server.utils import resolve_script_path
+print(resolve_script_path('pre-deploy-check.sh'))
+PY
+)
+bash "$SCRIPT"
 ```
 
 ---
@@ -124,22 +141,22 @@ bash scripts/pre-deploy-check.sh
 ### Script não encontrado
 ```bash
 # Verificar se está no diretório correto
-ls scripts/*.sh
+ls src/raijin_server/scripts/*.sh
 
 # Tornar executável
-chmod +x scripts/*.sh
+chmod +x src/raijin_server/scripts/*.sh
 ```
 
 ### Permissão negada
 ```bash
 # Executar com sudo se necessário
-sudo bash scripts/checklist.sh
+sudo bash src/raijin_server/scripts/checklist.sh
 ```
 
 ### Erro de sintaxe
 ```bash
 # Verificar quebras de linha (LF vs CRLF)
-dos2unix scripts/*.sh
+dos2unix src/raijin_server/scripts/*.sh
 ```
 
 ---

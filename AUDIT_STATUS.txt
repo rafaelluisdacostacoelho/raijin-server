@@ -37,7 +37,7 @@ ARQUIVOS CRIADOS
 6. EXAMPLES.md
    - Exemplos práticos de uso
    
-7. scripts/pre-deploy-check.sh
+7. src/raijin_server/scripts/pre-deploy-check.sh
    - Checklist automatizado pré-deploy
 
 ==========================================

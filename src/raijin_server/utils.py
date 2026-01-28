@@ -34,6 +34,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger('raijin-server')
 
+PACKAGE_ROOT = Path(__file__).resolve().parent
+SCRIPTS_DIR = PACKAGE_ROOT / "scripts"
+
 
 @dataclass
 class ExecutionContext:
@@ -46,6 +49,29 @@ class ExecutionContext:
     timeout: int = 300
     errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+
+
+def resolve_script_path(script_name: str) -> Path:
+    """Retorna caminho absoluto para um script empacotado com o CLI."""
+
+    script_path = SCRIPTS_DIR / script_name
+    if not script_path.exists():
+        raise FileNotFoundError(f"Script '{script_name}' nao encontrado em {SCRIPTS_DIR}")
+    return script_path
+
+
+def run_packaged_script(
+    script_name: str,
+    ctx: ExecutionContext,
+    args: Sequence[str] | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess:
+    """Executa script shell embarcado usando bash para evitar problemas de permissoes."""
+
+    script_path = resolve_script_path(script_name)
+    cmd: list[str] = ["bash", str(script_path), *(args or [])]
+    return run_cmd(cmd, ctx, env=env)
 
 
 def _format_cmd(cmd: Sequence[str] | str) -> str:

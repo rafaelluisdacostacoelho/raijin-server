@@ -61,7 +61,7 @@ Sua arquitetura do CLI para configurar Ubuntu Server 24 foi **completamente revi
 - ✅ [`AUDIT.md`](AUDIT.md) - Relatório completo de auditoria
 - ✅ [`README.md`](README.md) - Atualizado com novas features
 - ✅ [`ARCHITECTURE.md`](ARCHITECTURE.md) - Arquitetura revisada
-- ✅ [`scripts/pre-deploy-check.sh`](scripts/pre-deploy-check.sh) - Checklist automatizado
+- ✅ [`src/raijin_server/scripts/pre-deploy-check.sh`](src/raijin_server/scripts/pre-deploy-check.sh) - Checklist automatizado
 
 ### 4. **Configurações Atualizadas**
 
@@ -91,7 +91,7 @@ sudo raijin-server --skip-validation kubernetes
 sudo raijin-server
 
 # Checklist pré-deploy
-bash scripts/pre-deploy-check.sh
+bash src/raijin_server/scripts/pre-deploy-check.sh
 ```
 
 ---

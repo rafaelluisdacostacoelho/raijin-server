@@ -46,7 +46,7 @@
 - **Rastreável**: Logs persistentes em `/var/log/raijin-server/` ou `~/.raijin-server.log`.
 - **Automatizável**: Configuração via arquivo YAML/JSON para execução não-interativa.
 - **Dependências Gerenciadas**: Sistema verifica e bloqueia execução fora de ordem.
-- Placeholders prontos para extensao via `scripts/` (templates e shell helpers).
+- Placeholders prontos para extensao via `src/raijin_server/scripts/` (templates e shell helpers empacotados).
 - Configuracao guiada por prompts (CIDR, ingress host, senhas admin, storage, tokens) para adaptar ao ambiente.
 
 ## Futuro/prioridades
