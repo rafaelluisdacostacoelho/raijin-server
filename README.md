@@ -48,6 +48,36 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
+### Instalação em Produção (Recomendado)
+
+Para servidores em produção, use um venv isolado e execute com sudo preservando o ambiente:
+
+```bash
+# 1. Sair do venv atual (se estiver ativo)
+deactivate
+
+# 2. (Opcional) Remover venv antigo
+rm -rf ~/.venvs/raijin
+
+# 3. Criar venv novo
+python3 -m venv ~/.venvs/raijin
+source ~/.venvs/raijin/bin/activate
+pip install -U pip setuptools
+
+# 4. Instalar a versão mais recente
+pip install -U raijin-server
+
+# 5. Rodar usando root preservando o venv
+sudo -E ~/.venvs/raijin/bin/raijin-server --version
+sudo -E ~/.venvs/raijin/bin/raijin-server validate
+sudo -E ~/.venvs/raijin/bin/raijin-server full-install
+
+# 6. Para sair do venv quando terminar
+deactivate
+```
+
+> **Nota**: O `-E` no sudo preserva as variáveis de ambiente, garantindo que o Python use o venv correto mesmo como root.
+
 ## Uso rapido
 
 ### Validar Sistema
