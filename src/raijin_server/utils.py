@@ -51,9 +51,10 @@ class ExecutionContext:
 
     dry_run: bool = False
     assume_yes: bool = True
-    max_retries: int = 3
-    retry_delay: int = 5
-    timeout: int = 300
+    max_retries: int = 5
+    retry_delay: int = 10
+    retry_backoff: float = 1.5  # Multiplier for exponential backoff
+    timeout: int = 600  # 10 min for slow connections
     errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
 
@@ -144,14 +145,24 @@ def run_cmd(
             logger.warning(msg)
             ctx.warnings.append(msg)
             if attempt < max_attempts:
-                time.sleep(ctx.retry_delay)
+                backoff_delay = int(ctx.retry_delay * (ctx.retry_backoff ** (attempt - 1)))
+                typer.secho(
+                    f"Timeout! Aguardando {backoff_delay}s antes de tentar novamente...",
+                    fg=typer.colors.YELLOW,
+                )
+                time.sleep(backoff_delay)
         except subprocess.CalledProcessError as e:
             last_error = e
             msg = f"Comando falhou com codigo {e.returncode} (tentativa {attempt}/{max_attempts})"
             logger.error(f"{msg}: {e.stderr if hasattr(e, 'stderr') else ''}")
             if attempt < max_attempts:
-                typer.secho(f"Tentando novamente em {ctx.retry_delay}s...", fg=typer.colors.YELLOW)
-                time.sleep(ctx.retry_delay)
+                # Exponential backoff: delay * backoff^(attempt-1)
+                backoff_delay = int(ctx.retry_delay * (ctx.retry_backoff ** (attempt - 1)))
+                typer.secho(
+                    f"Tentando novamente em {backoff_delay}s... (possivel instabilidade de rede)",
+                    fg=typer.colors.YELLOW,
+                )
+                time.sleep(backoff_delay)
             else:
                 ctx.errors.append(msg)
                 if check:

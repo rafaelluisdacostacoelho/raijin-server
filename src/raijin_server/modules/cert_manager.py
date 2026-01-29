@@ -79,10 +79,39 @@ stringData:
 """
 
 
+def _check_cluster_available(ctx: ExecutionContext) -> bool:
+    """Verifica se o cluster Kubernetes esta acessivel."""
+    if ctx.dry_run:
+        return True
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["kubectl", "cluster-info"],
+            capture_output=True,
+            timeout=30,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def run(ctx: ExecutionContext) -> None:
     require_root(ctx)
     ensure_tool("helm", ctx, install_hint="Instale helm ou use --dry-run para simular.")
     ensure_tool("kubectl", ctx, install_hint="Instale kubectl ou use --dry-run para simular.")
+
+    # Verifica se cluster esta disponivel antes de instalar
+    if not _check_cluster_available(ctx):
+        typer.secho(
+            "✗ Cluster Kubernetes nao esta acessivel. Execute o modulo 'kubernetes' primeiro.",
+            fg=typer.colors.RED,
+        )
+        typer.secho(
+            "  Verifique: kubectl cluster-info",
+            fg=typer.colors.YELLOW,
+        )
+        ctx.errors.append("cert-manager: cluster nao acessivel")
+        raise typer.Exit(code=1)
 
     typer.echo("Instalando cert-manager via Helm...")
     email = typer.prompt("Email para ACME (Let's Encrypt)", default="admin@example.com")

@@ -6,11 +6,14 @@ CLI em Python (Typer) para automatizar setup e hardening de servidores Ubuntu Se
 
 ## Destaques
 
-- ✅ **Validações de Pré-requisitos**: OS, espaço em disco, memória, conectividade
+- ✅ **Validações de Pré-requisitos**: OS, espaço em disco, memória, conectividade, ambiente Python (venv)
 - ✅ **Health Checks Automáticos**: Valida serviços após instalação
-- ✅ **Retry Inteligente**: Resistente a falhas temporárias de rede
-- ✅ **Logging Estruturado**: Logs persistentes para auditoria
+- ✅ **Retry Inteligente com Backoff**: Resistente a falhas temporárias de rede (5 tentativas, backoff exponencial)
+- ✅ **Logging Estruturado**: Logs persistentes com rotação (20MB, 5 backups)
 - ✅ **Gestão de Dependências**: Garante ordem correta de execução
+- ✅ **Verificação de Cluster**: Módulos que dependem de K8s verificam disponibilidade antes de executar
+- ✅ **Clean Automático**: Opção de limpar instalação anterior ao re-executar kubernetes
+- ✅ **IPv4 Only**: IPv6 desabilitado por padrão para simplificar rede
 - ✅ **Configuração via Arquivo**: Automação completa com YAML/JSON
 - ✅ **Idempotência**: Re-execução segura sem quebrar o sistema
 - ✅ **Modo Dry-run**: Simula execução sem aplicar mudanças
@@ -147,7 +150,9 @@ se deseja pular. Se executar manualmente, basta responder "não" quando pergunta
 
 ### Comandos Úteis
 ```bash
-# Versão
+# Versão (flag ou comando)
+raijin-server --version
+raijin-server -V
 raijin-server version
 
 # Monitorar logs
@@ -189,9 +194,9 @@ tail -f /var/log/raijin-server/raijin-server.log
 - `network`: Netplan com IP fixo e DNS. **OPCIONAL** se IP já configurado pelo provedor ISP.
 - `firewall`: UFW com regras para SSH/HTTP/HTTPS/K8s.
 - `vpn`: provisiona WireGuard (servidor + cliente inicial) e libera firewall.
-- `kubernetes`: kubeadm init, containerd SystemdCgroup, kubeconfig.
-- `calico`: CNI Calico com CIDR custom, default-deny e opcao de liberar egress rotulado.
-- `cert_manager`: instala cert-manager e ClusterIssuer ACME (HTTP-01/DNS-01).
+- `kubernetes`: kubeadm init, containerd SystemdCgroup, kubeconfig. **Oferece limpeza automática** se detectar instalação anterior. IPv6 desabilitado por padrão.
+- `calico`: CNI Calico com CIDR custom, default-deny e opcao de liberar egress rotulado. **Verifica cluster ativo** antes de aplicar.
+- `cert_manager`: instala cert-manager e ClusterIssuer ACME (HTTP-01/DNS-01). **Verifica cluster ativo** antes de instalar.
 - `secrets`: instala sealed-secrets e external-secrets via Helm.
 - `istio`: istioctl install (perfil raijin) e injeção automática.
 - `traefik`: IngressController com TLS/ACME.

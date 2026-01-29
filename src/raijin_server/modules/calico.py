@@ -62,10 +62,39 @@ def _split_namespaces(raw_value: str) -> Iterable[str]:
     return [ns.strip() for ns in raw_value.split(",") if ns.strip()]
 
 
+def _check_cluster_available(ctx: ExecutionContext) -> bool:
+    """Verifica se o cluster Kubernetes esta acessivel."""
+    if ctx.dry_run:
+        return True
+    try:
+        result = run_cmd(
+            ["kubectl", "cluster-info"],
+            ctx,
+            check=False,
+            retries=1,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def run(ctx: ExecutionContext) -> None:
     require_root(ctx)
     ensure_tool("kubectl", ctx, install_hint="Instale kubectl ou habilite dry-run.")
     ensure_tool("curl", ctx, install_hint="Instale curl.")
+
+    # Verifica se cluster esta disponivel antes de aplicar
+    if not _check_cluster_available(ctx):
+        typer.secho(
+            "✗ Cluster Kubernetes nao esta acessivel. Execute o modulo 'kubernetes' primeiro.",
+            fg=typer.colors.RED,
+        )
+        typer.secho(
+            "  Verifique: kubectl cluster-info",
+            fg=typer.colors.YELLOW,
+        )
+        ctx.errors.append("Calico: cluster nao acessivel")
+        raise typer.Exit(code=1)
 
     typer.echo("Aplicando Calico como CNI...")
     pod_cidr = typer.prompt("Pod CIDR (Calico)", default="10.244.0.0/16")

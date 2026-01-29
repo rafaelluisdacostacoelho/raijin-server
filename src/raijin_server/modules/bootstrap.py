@@ -87,17 +87,37 @@ def _install_istioctl(ctx: ExecutionContext) -> None:
         return
 
     typer.echo(f"Instalando istioctl v{ISTIOCTL_VERSION}...")
+    
+    # Limpa tentativas anteriores
+    istio_dir = Path(f"/tmp/istio-{ISTIOCTL_VERSION}")
+    if istio_dir.exists() and not ctx.dry_run:
+        run_cmd(["rm", "-rf", str(istio_dir)], ctx, check=False)
+    
+    # Download do Istio
     run_cmd(
         f"curl -L https://istio.io/downloadIstio | ISTIO_VERSION={ISTIOCTL_VERSION} sh -",
         ctx,
         use_shell=True,
         cwd="/tmp",
     )
+    
+    # Verifica se o download foi bem sucedido
+    istioctl_path = Path(f"/tmp/istio-{ISTIOCTL_VERSION}/bin/istioctl")
+    if not ctx.dry_run and not istioctl_path.exists():
+        typer.secho(
+            f"Falha ao baixar istioctl. Arquivo nao encontrado: {istioctl_path}",
+            fg=typer.colors.RED,
+        )
+        typer.secho("Verifique sua conexao de internet e tente novamente.", fg=typer.colors.YELLOW)
+        ctx.warnings.append("istioctl nao instalado - download falhou")
+        return  # Nao falha o modulo inteiro, apenas avisa
+    
     run_cmd(
-        ["mv", f"/tmp/istio-{ISTIOCTL_VERSION}/bin/istioctl", "/usr/local/bin/istioctl"],
+        ["mv", str(istioctl_path), "/usr/local/bin/istioctl"],
         ctx,
     )
     run_cmd(["chmod", "+x", "/usr/local/bin/istioctl"], ctx)
+    typer.secho("✓ istioctl instalado com sucesso.", fg=typer.colors.GREEN)
 
 
 def _install_velero(ctx: ExecutionContext) -> None:

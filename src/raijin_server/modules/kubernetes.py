@@ -35,6 +35,20 @@ def _cleanup_old_repo(ctx: ExecutionContext) -> None:
             typer.echo("Nao foi possivel ler/remover repo antigo apt.kubernetes.io (ok prosseguir).")
 
 
+def _reset_cluster(ctx: ExecutionContext) -> None:
+    """Executa kubeadm reset para limpar instalacao anterior."""
+    typer.secho("Limpando instalacao anterior do Kubernetes...", fg=typer.colors.YELLOW)
+    run_cmd(["kubeadm", "reset", "-f"], ctx, check=False)
+    # Remove configs residuais
+    run_cmd(["rm", "-rf", "/etc/kubernetes/manifests", "/etc/kubernetes/pki"], ctx, check=False)
+    run_cmd(["rm", "-rf", "/var/lib/etcd"], ctx, check=False)
+    run_cmd(["rm", "-rf", "/root/.kube/config"], ctx, check=False)
+    # Remove CNI configs
+    run_cmd(["rm", "-rf", "/etc/cni/net.d"], ctx, check=False)
+    run_cmd(["rm", "-rf", "/var/lib/cni"], ctx, check=False)
+    typer.secho("✓ Limpeza concluida.", fg=typer.colors.GREEN)
+
+
 def run(ctx: ExecutionContext) -> None:
     require_root(ctx)
     typer.echo("Instalando e preparando Kubernetes (kubeadm/kubelet/kubectl)...")
@@ -43,7 +57,10 @@ def run(ctx: ExecutionContext) -> None:
     kubeconfig_exists = Path("/etc/kubernetes/admin.conf").exists()
     if kubeconfig_exists and not ctx.dry_run:
         typer.secho("⚠ Cluster Kubernetes ja parece estar inicializado.", fg=typer.colors.YELLOW)
-        if not typer.confirm("Deseja continuar mesmo assim? (pode causar problemas)"):
+        reset_choice = typer.confirm("Deseja limpar e reinstalar? (recomendado)")
+        if reset_choice:
+            _reset_cluster(ctx)
+        elif not typer.confirm("Deseja continuar sem limpar? (pode causar problemas)"):
             typer.echo("Operacao cancelada pelo usuario.")
             return
 
@@ -130,8 +147,18 @@ def run(ctx: ExecutionContext) -> None:
     enable_service("kubelet", ctx)
 
     # kubeadm exige ip_forward=1; sobrepoe ajuste de hardening para fase de cluster.
-    write_file(Path("/etc/sysctl.d/99-kubernetes.conf"), "net.ipv4.ip_forward=1\n", ctx)
-    run_cmd(["sysctl", "-w", "net.ipv4.ip_forward=1"], ctx, check=False)
+    # Desabilita IPv6 completamente para evitar erros de preflight e simplificar rede
+    sysctl_k8s = """# Kubernetes network settings
+net.ipv4.ip_forward=1
+net.bridge.bridge-nf-call-iptables=1
+net.bridge.bridge-nf-call-ip6tables=1
+# Disable IPv6 completely
+net.ipv6.conf.all.disable_ipv6=1
+net.ipv6.conf.default.disable_ipv6=1
+net.ipv6.conf.lo.disable_ipv6=1
+"""
+    write_file(Path("/etc/sysctl.d/99-kubernetes.conf"), sysctl_k8s, ctx)
+    run_cmd(["sysctl", "--system"], ctx, check=False)
 
     # Prompts de configuracao
     pod_cidr = typer.prompt("Pod CIDR", default="10.244.0.0/16")
@@ -168,7 +195,16 @@ cgroupDriver: systemd
 
     ensure_tool("kubeadm", ctx, install_hint="Instale kubeadm (apt install kubeadm).")
     run_cmd(["kubeadm", "config", "images", "pull"], ctx, check=False)
-    run_cmd(["kubeadm", "init", "--config", str(cfg_path), "--upload-certs"], ctx)
+    # Ignora erros de preflight relacionados a IPv6 (desabilitado)
+    run_cmd(
+        [
+            "kubeadm", "init",
+            "--config", str(cfg_path),
+            "--upload-certs",
+            "--ignore-preflight-errors=FileContent--proc-sys-net-ipv6-conf-default-forwarding",
+        ],
+        ctx,
+    )
 
     # Configura kubeconfig para root e sudoer.
     run_cmd(["mkdir", "-p", "/root/.kube"], ctx)
