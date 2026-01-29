@@ -203,8 +203,64 @@ def ensure_tool(name: str, ctx: ExecutionContext, install_hint: str = "") -> Non
         raise typer.Exit(code=1)
 
 
+def _fix_broken_apt_sources(ctx: ExecutionContext) -> None:
+    """Corrige repositórios APT quebrados (mirrors brasileiros problemáticos)."""
+    if ctx.dry_run:
+        typer.echo("[dry-run] Verificando/corrigindo repositórios APT...")
+        return
+
+    sources_list = Path("/etc/apt/sources.list")
+
+    # Detecta se está usando mirror brasileiro quebrado
+    needs_fix = False
+    if sources_list.exists():
+        content = sources_list.read_text()
+        if "br.archive.ubuntu.com" in content or "br.ports.ubuntu.com" in content:
+            needs_fix = True
+
+    if not needs_fix:
+        return
+
+    typer.secho(
+        "⚠ Detectado mirror brasileiro possivelmente quebrado. Corrigindo...",
+        fg=typer.colors.YELLOW,
+    )
+    logger.warning("Corrigindo mirror brasileiro quebrado em sources.list")
+
+    # Backup do original
+    backup = sources_list.with_suffix(".list.bak")
+    if not backup.exists():
+        import shutil as sh
+        sh.copy2(sources_list, backup)
+
+    # Substitui mirror brasileiro pelo principal
+    new_content = content.replace("br.archive.ubuntu.com", "archive.ubuntu.com")
+    new_content = new_content.replace("br.ports.ubuntu.com", "ports.ubuntu.com")
+    sources_list.write_text(new_content)
+
+    typer.secho("✓ Repositórios corrigidos (backup em sources.list.bak)", fg=typer.colors.GREEN)
+
+
 def apt_update(ctx: ExecutionContext) -> None:
-    run_cmd(["apt-get", "update"], ctx)
+    """Executa apt-get update, corrigindo repositórios quebrados se necessário."""
+    _fix_broken_apt_sources(ctx)
+
+    # Tenta o update; se falhar com erro de Release, tenta corrigir
+    try:
+        run_cmd(["apt-get", "update"], ctx, retries=2)
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "release" in error_msg or "no longer has" in error_msg:
+            typer.secho(
+                "⚠ Erro de repositório detectado. Tentando fallback...",
+                fg=typer.colors.YELLOW,
+            )
+            # Força correção e tenta novamente
+            ctx_temp = ExecutionContext(dry_run=False)
+            _fix_broken_apt_sources(ctx_temp)
+            run_cmd(["apt-get", "update"], ctx)
+        else:
+            raise
 
 
 def apt_install(packages: Iterable[str], ctx: ExecutionContext) -> None:
