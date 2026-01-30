@@ -299,6 +299,62 @@ def helm_repo_update(ctx: ExecutionContext) -> None:
     run_cmd(["helm", "repo", "update"], ctx)
 
 
+def _get_helm_release_status(release: str, namespace: str) -> str:
+    """Retorna status do release Helm (lowercased) ou string vazia se nao existir."""
+    try:
+        import json
+        result = subprocess.run(
+            ["helm", "status", release, "-n", namespace, "-o", "json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0 or not result.stdout:
+            return ""
+        data = json.loads(result.stdout)
+        return str(data.get("info", {}).get("status", "")).lower()
+    except Exception:
+        return ""
+
+
+def _cleanup_pending_helm_release(release: str, namespace: str, ctx: ExecutionContext) -> None:
+    """Remove release Helm em estado pendente que bloqueia novas operacoes."""
+    if ctx.dry_run:
+        return
+
+    status = _get_helm_release_status(release, namespace)
+    if not status:
+        return
+
+    # Estados que bloqueiam: pending-install, pending-upgrade, pending-rollback
+    if status.startswith("pending"):
+        typer.secho(
+            f"⚠ Release '{release}' em estado '{status}'. Limpando antes de prosseguir...",
+            fg=typer.colors.YELLOW,
+        )
+        # Tenta rollback primeiro (funciona para pending-upgrade)
+        subprocess.run(
+            ["helm", "rollback", release, "-n", namespace, "--wait", "--timeout", "2m"],
+            capture_output=True,
+            timeout=150,
+        )
+        # Verifica se resolveu
+        new_status = _get_helm_release_status(release, namespace)
+        if new_status.startswith("pending"):
+            # Se ainda pendente, desinstala
+            typer.secho(
+                f"  Rollback nao resolveu. Desinstalando release '{release}'...",
+                fg=typer.colors.YELLOW,
+            )
+            subprocess.run(
+                ["helm", "uninstall", release, "-n", namespace, "--wait", "--timeout", "3m"],
+                capture_output=True,
+                timeout=200,
+            )
+            time.sleep(5)
+        typer.secho(f"✓ Release '{release}' limpo.", fg=typer.colors.GREEN)
+
+
 def helm_upgrade_install(
     release: str,
     chart: str,
@@ -311,9 +367,16 @@ def helm_upgrade_install(
     create_namespace: bool = True,
     extra_args: list[str] | None = None,
 ) -> None:
-    """Executa helm upgrade --install com opcoes comuns."""
+    """Executa helm upgrade --install com opcoes comuns.
+    
+    Automaticamente detecta e limpa releases em estado pendente antes de instalar.
+    """
 
     ensure_tool("helm", ctx, install_hint="Instale helm ou habilite dry-run para so visualizar.")
+    
+    # Limpa releases pendentes antes de tentar instalar
+    _cleanup_pending_helm_release(release, namespace, ctx)
+    
     if repo and repo_url:
         helm_repo_add(repo, repo_url, ctx)
         helm_repo_update(ctx)
@@ -328,7 +391,21 @@ def helm_upgrade_install(
         cmd.extend(["--set", value])
     if extra_args:
         cmd.extend(extra_args)
-    run_cmd(cmd, ctx)
+    
+    try:
+        run_cmd(cmd, ctx)
+    except Exception as e:
+        err_text = str(e).lower()
+        # Se falhou por operacao em progresso, tenta limpar e reinstalar uma vez
+        if "another operation" in err_text and "in progress" in err_text:
+            typer.secho(
+                f"⚠ Helm detectou operacao pendente em '{release}'. Limpando e tentando novamente...",
+                fg=typer.colors.YELLOW,
+            )
+            _cleanup_pending_helm_release(release, namespace, ctx)
+            run_cmd(cmd, ctx)
+        else:
+            raise
 
 
 def kubectl_apply(target: str, ctx: ExecutionContext) -> None:

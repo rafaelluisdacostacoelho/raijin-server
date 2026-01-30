@@ -437,6 +437,7 @@ def _install_cert_manager_helm(ctx: ExecutionContext) -> bool:
     typer.secho("\n📦 Instalando cert-manager via Helm...", fg=typer.colors.CYAN, bold=True)
     
     try:
+        # O helm_upgrade_install agora limpa releases pendentes automaticamente
         helm_upgrade_install(
             release="cert-manager",
             chart=CHART_NAME,
