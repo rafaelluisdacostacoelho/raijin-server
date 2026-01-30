@@ -4,6 +4,14 @@ CLI em Python (Typer) para automatizar setup e hardening de servidores Ubuntu Se
 
 **✨ Versão Auditada e Resiliente para Produção**
 
+## Links úteis
+
+- Repositório: https://github.com/rafaelluisdacostacoelho/raijin-server
+- Documentação completa: [docs/INFRASTRUCTURE_GUIDE.md](docs/INFRASTRUCTURE_GUIDE.md)
+- Arquitetura: [ARCHITECTURE.md](ARCHITECTURE.md)
+- Auditoria: [AUDIT.md](AUDIT.md)
+- Segurança: [SECURITY.md](SECURITY.md)
+
 ## Destaques
 
 - ✅ **Validações de Pré-requisitos**: OS, espaço em disco, memória, conectividade, ambiente Python (venv)
