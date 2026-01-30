@@ -25,6 +25,49 @@ from raijin_server.modules import (
 )
 
 
+def _cert_manager_install_only(ctx: ExecutionContext) -> None:
+    """Wrapper para instalar cert-manager sem interação."""
+    if not cert_manager.install_only(ctx):
+        raise RuntimeError("Falha na instalação do cert-manager")
+    
+    # Cria issuer HTTP01 padrão para staging (teste) e produção
+    # O usuário pode criar issuers adicionais depois com 'raijin-server cert install'
+    email = os.environ.get("RAIJIN_ACME_EMAIL", "")
+    if email and "@" in email:
+        typer.secho("\n📜 Criando ClusterIssuers padrão...", fg=typer.colors.CYAN)
+        
+        # Cria issuer de staging (para testes)
+        cert_manager.create_issuer(
+            ctx,
+            name="letsencrypt-staging",
+            email=email,
+            challenge_type="http01",
+            staging=True,
+            ingress_class="traefik",
+        )
+        
+        # Cria issuer de produção
+        cert_manager.create_issuer(
+            ctx,
+            name="letsencrypt-prod",
+            email=email,
+            challenge_type="http01",
+            staging=False,
+            ingress_class="traefik",
+        )
+        
+        typer.secho("✓ ClusterIssuers 'letsencrypt-staging' e 'letsencrypt-prod' criados", fg=typer.colors.GREEN)
+    else:
+        typer.secho(
+            "ℹ Para criar ClusterIssuers automaticamente, defina RAIJIN_ACME_EMAIL",
+            fg=typer.colors.YELLOW,
+        )
+        typer.secho(
+            "  Exemplo: export RAIJIN_ACME_EMAIL=admin@seudominio.com",
+            fg=typer.colors.YELLOW,
+        )
+
+
 # Ordem de execucao dos modulos para instalacao completa
 # Modulos marcados com skip_env podem ser pulados via variavel de ambiente
 INSTALL_SEQUENCE = [
@@ -36,7 +79,7 @@ INSTALL_SEQUENCE = [
     ("firewall", firewall.run, "Firewall UFW", None),
     ("kubernetes", kubernetes.run, "Cluster Kubernetes (kubeadm)", None),
     ("calico", calico.run, "CNI Calico + NetworkPolicy", None),
-    ("cert_manager", cert_manager.run, "cert-manager + ClusterIssuer ACME", None),
+    ("cert_manager", _cert_manager_install_only, "cert-manager (instalacao base)", None),
     ("secrets", secrets.run, "Sealed-Secrets + External-Secrets", None),
     ("prometheus", prometheus.run, "Monitoramento Prometheus", None),
     ("grafana", grafana.run, "Dashboards Grafana", None),

@@ -244,7 +244,15 @@ def _resolve_tls_secret() -> str | None:
     return secret.strip() or None
 
 
-def _build_manifest(host: str, tls_secret: str | None) -> str:
+def _resolve_ip_access() -> bool:
+    """Pergunta se deseja acesso via IP direto (para testes)."""
+    env_ip = os.environ.get("APOKOLIPS_IP_ACCESS")
+    if env_ip:
+        return env_ip.strip().lower() in ("1", "true", "yes")
+    return typer.confirm("Habilitar acesso via IP direto? (apenas para testes)", default=True)
+
+
+def _build_manifest(host: str, tls_secret: str | None, ip_access: bool = False) -> str:
         html_block = indent(HTML_TEMPLATE.strip("\n"), " " * 4)
         tls_block = ""
         if tls_secret:
@@ -254,6 +262,20 @@ def _build_manifest(host: str, tls_secret: str | None) -> str:
                         f"    - {host}\n"
                         f"    secretName: {tls_secret}\n"
                 )
+        
+        # Regra adicional para acesso via IP (sem host)
+        ip_rule = ""
+        if ip_access:
+                ip_rule = """
+    - http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: apokolips-demo
+              port:
+                number: 80"""
 
         template = """\
 apiVersion: v1
@@ -340,12 +362,13 @@ spec:
                     service:
                         name: apokolips-demo
                         port:
-                            number: 80
+                            number: 80__IP_RULE__
 __TLS__
 """
 
         manifest = template.format(namespace=NAMESPACE, host=host)
         manifest = manifest.replace("__HTML__", html_block)
+        manifest = manifest.replace("__IP_RULE__", ip_rule)
         manifest = manifest.replace("__TLS__", tls_block.rstrip())
         return f"{manifest.strip()}\n"
 
@@ -354,7 +377,8 @@ def run(ctx: ExecutionContext) -> None:
     ensure_tool("kubectl", ctx, install_hint="Instale kubectl para aplicar o manifesto do site.")
     host = _resolve_host()
     tls_secret = _resolve_tls_secret()
-    manifest = _build_manifest(host, tls_secret)
+    ip_access = _resolve_ip_access()
+    manifest = _build_manifest(host, tls_secret, ip_access)
 
     typer.echo("Gerando manifesto Apokolips...")
     write_file(TMP_MANIFEST, manifest, ctx)
@@ -369,10 +393,22 @@ def run(ctx: ExecutionContext) -> None:
     typer.echo(f"  • Host: {host}")
     if tls_secret:
         typer.echo(f"  • Secret TLS: {tls_secret}")
+    if ip_access:
+        typer.secho("  • Acesso via IP: HABILITADO (apenas para testes)", fg=typer.colors.YELLOW)
+    
     typer.echo("\nTestes sugeridos:")
-    typer.echo(f"  curl -H 'Host: {host}' https://<IP_DO_LOAD_BALANCER>/ --insecure")
+    if ip_access:
+        typer.echo("  # Acesso direto via IP (teste):")
+        typer.echo("  curl http://<IP_DO_SERVIDOR>/")
+        typer.echo("")
+    typer.echo(f"  # Acesso via DNS (produção):")
+    typer.echo(f"  curl -H 'Host: {host}' http://<IP_DO_LOAD_BALANCER>/")
     typer.echo(f"  kubectl -n {NAMESPACE} get ingress {NAMESPACE}")
     typer.echo(f"  kubectl -n {NAMESPACE} get pods")
+
+    if ip_access:
+        typer.secho("\n⚠️  Lembre-se de desabilitar o acesso via IP após configurar o DNS!", fg=typer.colors.YELLOW)
+        typer.echo("   Rode novamente com APOKOLIPS_IP_ACCESS=false ou responda 'não' na pergunta.")
 
     typer.echo("\nPara remover:")
     typer.echo(f"  kubectl delete namespace {NAMESPACE}")

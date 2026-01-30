@@ -470,6 +470,83 @@ def sanitize(ctx: typer.Context) -> None:
     _run_module(ctx, "sanitize")
 
 
+# ============================================================================
+# Subcomandos Cert-Manager
+# ============================================================================
+cert_app = typer.Typer(help="Comandos para gerenciamento do cert-manager")
+app.add_typer(cert_app, name="cert")
+
+
+@cert_app.command(name="install")
+def cert_install(ctx: typer.Context) -> None:
+    """Instala cert-manager e configura ClusterIssuer interativamente."""
+    _run_module(ctx, "cert_manager")
+
+
+@cert_app.command(name="status")
+def cert_status(ctx: typer.Context) -> None:
+    """Exibe status detalhado do cert-manager, pods, webhook e certificados."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    cert_manager.status(exec_ctx)
+
+
+@cert_app.command(name="diagnose")
+def cert_diagnose(ctx: typer.Context) -> None:
+    """Executa diagnóstico completo para troubleshooting do cert-manager."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    cert_manager.diagnose(exec_ctx)
+
+
+@cert_app.command(name="list-certs")
+def cert_list(ctx: typer.Context) -> None:
+    """Lista todos os certificados no cluster."""
+    import subprocess
+    
+    typer.secho("\n📜 Certificados no Cluster", fg=typer.colors.CYAN, bold=True)
+    try:
+        result = subprocess.run(
+            [
+                "kubectl", "get", "certificates", "-A",
+                "-o", "wide"
+            ],
+            capture_output=False,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            typer.secho("Nenhum certificado encontrado ou erro ao listar.", fg=typer.colors.YELLOW)
+    except Exception as e:
+        typer.secho(f"Erro: {e}", fg=typer.colors.RED)
+
+
+@cert_app.command(name="list-issuers")
+def cert_list_issuers(ctx: typer.Context) -> None:
+    """Lista todos os ClusterIssuers e Issuers."""
+    import subprocess
+    
+    typer.secho("\n🔐 ClusterIssuers", fg=typer.colors.CYAN, bold=True)
+    try:
+        subprocess.run(
+            ["kubectl", "get", "clusterissuers", "-o", "wide"],
+            timeout=15,
+        )
+    except Exception:
+        pass
+    
+    typer.secho("\n🔐 Issuers (por namespace)", fg=typer.colors.CYAN, bold=True)
+    try:
+        subprocess.run(
+            ["kubectl", "get", "issuers", "-A", "-o", "wide"],
+            timeout=15,
+        )
+    except Exception:
+        pass
+
+
+# ============================================================================
+# Comandos Existentes
+# ============================================================================
+
+
 @app.command(name="bootstrap")
 def bootstrap_cmd(ctx: typer.Context) -> None:
     """Instala todas as ferramentas necessarias: helm, kubectl, istioctl, velero, containerd."""

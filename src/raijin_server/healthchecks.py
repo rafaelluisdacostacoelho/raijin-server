@@ -264,8 +264,67 @@ def verify_helm_chart(release: str, namespace: str, ctx: ExecutionContext) -> bo
 
 
 def verify_cert_manager(ctx: ExecutionContext) -> bool:
-    """Health check para cert-manager."""
-    return verify_helm_chart("cert-manager", CERT_NS, ctx)
+    """Health check completo para cert-manager."""
+    logger.info("Verificando health check: cert-manager")
+    typer.secho("\n=== Health Check: Cert-Manager ===", fg=typer.colors.CYAN)
+    
+    all_ok = True
+    
+    # Verifica release Helm
+    ok, status = check_helm_release("cert-manager", CERT_NS, ctx)
+    if ok:
+        typer.secho(f"  ✓ Release cert-manager: {status}", fg=typer.colors.GREEN)
+    else:
+        typer.secho(f"  ✗ Release cert-manager: {status}", fg=typer.colors.RED)
+        return False
+    
+    # Verifica pods
+    if not check_k8s_pods_in_namespace(CERT_NS, ctx, timeout=180):
+        all_ok = False
+    
+    # Verifica CRDs
+    if not ctx.dry_run:
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["kubectl", "get", "crd", "certificates.cert-manager.io"],
+                capture_output=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                typer.secho("  ✓ CRDs instalados", fg=typer.colors.GREEN)
+            else:
+                typer.secho("  ✗ CRDs não encontrados", fg=typer.colors.RED)
+                all_ok = False
+        except Exception as e:
+            typer.secho(f"  ✗ Erro ao verificar CRDs: {e}", fg=typer.colors.RED)
+            all_ok = False
+    
+    # Verifica webhook ready
+    if not ctx.dry_run:
+        try:
+            import subprocess
+            result = subprocess.run(
+                [
+                    "kubectl", "get", "deployment", "cert-manager-webhook",
+                    "-n", CERT_NS,
+                    "-o", "jsonpath={.status.readyReplicas}"
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            ready = result.returncode == 0 and result.stdout.strip() and int(result.stdout.strip()) >= 1
+            if ready:
+                typer.secho("  ✓ Webhook pronto", fg=typer.colors.GREEN)
+            else:
+                typer.secho("  ✗ Webhook não está pronto", fg=typer.colors.RED)
+                all_ok = False
+        except Exception as e:
+            typer.secho(f"  ✗ Erro ao verificar webhook: {e}", fg=typer.colors.RED)
+            all_ok = False
+    
+    return all_ok
 
 
 def verify_secrets(ctx: ExecutionContext) -> bool:

@@ -1,0 +1,44 @@
+# =============================================================================
+# Azure DNS-01 ClusterIssuer
+# =============================================================================
+# Pré-requisitos:
+# 1. Crie um App Registration no Azure AD
+# 2. Atribua a role "DNS Zone Contributor" no Resource Group da DNS Zone
+# 3. Crie um Client Secret para o App Registration
+# 4. Aplique o Secret primeiro, depois o ClusterIssuer
+# =============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-dns-credentials
+  namespace: cert-manager
+type: Opaque
+stringData:
+  client-secret: AZURE_CLIENT_SECRET_AQUI
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-azure
+spec:
+  acme:
+    email: you@example.com
+    # Produção: https://acme-v02.api.letsencrypt.org/directory
+    # Staging:  https://acme-staging-v02.api.letsencrypt.org/directory
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-azure-account-key
+    solvers:
+      - dns01:
+          azureDNS:
+            subscriptionID: SUBSCRIPTION_ID_AQUI
+            resourceGroupName: RESOURCE_GROUP_NAME_AQUI
+            hostedZoneName: example.com
+            environment: AzurePublicCloud
+            # Para Azure Government: AzureUSGovernmentCloud
+            # Para Azure China: AzureChinaCloud
+            clientID: CLIENT_ID_AQUI
+            tenantID: TENANT_ID_AQUI
+            clientSecretSecretRef:
+              name: azure-dns-credentials
+              key: client-secret
