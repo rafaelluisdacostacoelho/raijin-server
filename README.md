@@ -372,6 +372,32 @@ pytest
 ruff check src tests
 ```
 
+## Publicar no PyPI (Twine)
+
+O Twine é a ferramenta oficial para enviar pacotes Python ao PyPI com upload seguro (HTTPS e checagem de hash). Use sempre um token de API.
+
+Passo a passo:
+```bash
+# 1) Gere artefatos
+python -m build --sdist --wheel --outdir dist/
+
+# 2) Configure o token (crie em https://pypi.org/manage/account/token/)
+export TWINE_USERNAME=__token__
+export TWINE_PASSWORD="<seu-token>"
+
+# 3) Envie para o PyPI
+python -m twine upload dist/*
+
+# 4) Verifique instalação
+python -m pip install -U raijin-server
+raijin-server --version
+```
+
+Boas práticas:
+- Use venv dedicado para publicar (`python -m venv ~/.venvs/publish && source ~/.venvs/publish/bin/activate`).
+- Nunca commite ou exponha o token; mantenha em variável de ambiente/secret manager.
+- Sempre suba primeiro para TestPyPI se quiser validar (`--repository testpypi`).
+
 ## Acesso remoto seguro (VPN + SSH)
 
 Execute `raijin-server ssh-hardening` para aplicar as politicas abaixo automaticamente e `raijin-server vpn` para subir o servidor WireGuard com um cliente inicial. Use `--dry-run` se quiser apenas revisar os comandos.
