@@ -317,6 +317,125 @@ def _get_helm_release_status(release: str, namespace: str) -> str:
         return ""
 
 
+def _get_helm_release_history(release: str, namespace: str) -> list:
+    """Retorna histórico do release Helm."""
+    try:
+        import json
+        result = subprocess.run(
+            ["helm", "history", release, "-n", namespace, "-o", "json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0 or not result.stdout:
+            return []
+        return json.loads(result.stdout)
+    except Exception:
+        return []
+
+
+def _diagnose_helm_release(release: str, namespace: str) -> None:
+    """Mostra diagnóstico detalhado de um release Helm."""
+    typer.secho(f"\n🔍 Diagnóstico do release '{release}':", fg=typer.colors.YELLOW)
+    
+    # Status atual
+    status = _get_helm_release_status(release, namespace)
+    typer.echo(f"  Status atual: {status or '(não encontrado)'}")
+    
+    # Histórico
+    history = _get_helm_release_history(release, namespace)
+    if history:
+        typer.echo(f"  Histórico ({len(history)} revisões):")
+        for rev in history[-5:]:  # Últimas 5 revisões
+            typer.echo(f"    Rev {rev.get('revision')}: {rev.get('status')} - {rev.get('description', '')[:50]}")
+    
+    # Secrets do Helm (onde guarda estado)
+    try:
+        result = subprocess.run(
+            ["kubectl", "get", "secrets", "-n", namespace, "-l", f"name={release},owner=helm", "-o", "name"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.stdout.strip():
+            secrets = result.stdout.strip().split("\n")
+            typer.echo(f"  Secrets do Helm: {len(secrets)}")
+            for s in secrets[-5:]:
+                typer.echo(f"    {s}")
+    except Exception:
+        pass
+    
+    # Pods relacionados
+    try:
+        result = subprocess.run(
+            ["kubectl", "get", "pods", "-n", namespace, "-o", "wide", "--no-headers"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.stdout.strip():
+            typer.echo("  Pods:")
+            for line in result.stdout.strip().split("\n")[:5]:
+                typer.echo(f"    {line}")
+    except Exception:
+        pass
+
+
+def _force_cleanup_helm_release(release: str, namespace: str) -> bool:
+    """Limpeza forçada de release Helm travado - remove secrets diretamente."""
+    typer.secho(f"  Limpeza forçada do release '{release}'...", fg=typer.colors.YELLOW)
+    logger.warning(f"Executando limpeza forçada do release {release} em {namespace}")
+    
+    try:
+        # 1. Primeiro tenta uninstall normal com --no-hooks (pula hooks que podem estar travando)
+        result = subprocess.run(
+            ["helm", "uninstall", release, "-n", namespace, "--no-hooks", "--wait", "--timeout", "2m"],
+            capture_output=True,
+            text=True,
+            timeout=150,
+        )
+        
+        if result.returncode == 0:
+            typer.secho(f"  ✓ Release removido via helm uninstall", fg=typer.colors.GREEN)
+            time.sleep(3)
+            return True
+        
+        # 2. Se falhou, remove os secrets do Helm diretamente
+        typer.echo("  Helm uninstall falhou, removendo secrets diretamente...")
+        logger.warning("Removendo secrets do Helm diretamente")
+        
+        # Lista secrets do Helm para este release
+        result = subprocess.run(
+            ["kubectl", "get", "secrets", "-n", namespace, "-l", f"name={release},owner=helm", "-o", "name"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        
+        if result.stdout.strip():
+            secrets = result.stdout.strip().split("\n")
+            for secret in secrets:
+                secret_name = secret.replace("secret/", "")
+                subprocess.run(
+                    ["kubectl", "delete", "secret", secret_name, "-n", namespace],
+                    capture_output=True,
+                    timeout=30,
+                )
+                typer.echo(f"    Removido: {secret_name}")
+            
+            time.sleep(3)
+            typer.secho(f"  ✓ Secrets do Helm removidos", fg=typer.colors.GREEN)
+            return True
+        else:
+            typer.echo("  Nenhum secret do Helm encontrado")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Erro na limpeza forçada: {e}")
+        typer.secho(f"  ✗ Erro na limpeza: {e}", fg=typer.colors.RED)
+        return False
+
+
 def _cleanup_pending_helm_release(release: str, namespace: str, ctx: ExecutionContext) -> None:
     """Remove release Helm em estado pendente que bloqueia novas operacoes."""
     if ctx.dry_run:
@@ -327,32 +446,61 @@ def _cleanup_pending_helm_release(release: str, namespace: str, ctx: ExecutionCo
         return
 
     # Estados que bloqueiam: pending-install, pending-upgrade, pending-rollback
-    if status.startswith("pending"):
-        typer.secho(
-            f"⚠ Release '{release}' em estado '{status}'. Limpando antes de prosseguir...",
-            fg=typer.colors.YELLOW,
-        )
-        # Tenta rollback primeiro (funciona para pending-upgrade)
-        subprocess.run(
+    if not status.startswith("pending"):
+        return
+    
+    typer.secho(
+        f"\n⚠ Release '{release}' em estado '{status}' - bloqueando novas operações",
+        fg=typer.colors.YELLOW,
+    )
+    
+    # Mostra diagnóstico
+    _diagnose_helm_release(release, namespace)
+    
+    typer.echo("\n  Tentando recuperar...")
+    
+    # 1. Tenta rollback primeiro (funciona para pending-upgrade)
+    if status == "pending-upgrade":
+        typer.echo("  Tentando rollback para versão anterior...")
+        result = subprocess.run(
             ["helm", "rollback", release, "-n", namespace, "--wait", "--timeout", "2m"],
             capture_output=True,
+            text=True,
             timeout=150,
         )
-        # Verifica se resolveu
-        new_status = _get_helm_release_status(release, namespace)
-        if new_status.startswith("pending"):
-            # Se ainda pendente, desinstala
-            typer.secho(
-                f"  Rollback nao resolveu. Desinstalando release '{release}'...",
-                fg=typer.colors.YELLOW,
-            )
-            subprocess.run(
-                ["helm", "uninstall", release, "-n", namespace, "--wait", "--timeout", "3m"],
-                capture_output=True,
-                timeout=200,
-            )
-            time.sleep(5)
-        typer.secho(f"✓ Release '{release}' limpo.", fg=typer.colors.GREEN)
+        
+        if result.returncode == 0:
+            new_status = _get_helm_release_status(release, namespace)
+            if not new_status.startswith("pending"):
+                typer.secho(f"  ✓ Rollback bem-sucedido (status: {new_status})", fg=typer.colors.GREEN)
+                return
+        
+        typer.echo("  Rollback não resolveu...")
+    
+    # 2. Tenta uninstall normal
+    typer.echo("  Tentando helm uninstall...")
+    result = subprocess.run(
+        ["helm", "uninstall", release, "-n", namespace, "--wait", "--timeout", "3m"],
+        capture_output=True,
+        text=True,
+        timeout=200,
+    )
+    
+    if result.returncode == 0:
+        typer.secho(f"  ✓ Release removido com sucesso", fg=typer.colors.GREEN)
+        time.sleep(3)
+        return
+    
+    # 3. Se ainda falhou, força limpeza
+    typer.echo("  Uninstall normal falhou, tentando limpeza forçada...")
+    _force_cleanup_helm_release(release, namespace)
+    
+    # Verifica resultado final
+    final_status = _get_helm_release_status(release, namespace)
+    if final_status:
+        typer.secho(f"  ⚠ Release ainda existe com status: {final_status}", fg=typer.colors.YELLOW)
+    else:
+        typer.secho(f"  ✓ Release '{release}' limpo com sucesso", fg=typer.colors.GREEN)
 
 
 def helm_upgrade_install(

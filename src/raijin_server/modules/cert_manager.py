@@ -432,37 +432,345 @@ def _wait_for_webhook_ready(ctx: ExecutionContext, timeout: int = WEBHOOK_READY_
 # Instalação e Configuração
 # =============================================================================
 
-def _install_cert_manager_helm(ctx: ExecutionContext) -> bool:
-    """Instala cert-manager via Helm."""
-    typer.secho("\n📦 Instalando cert-manager via Helm...", fg=typer.colors.CYAN, bold=True)
+def _test_helm_repo_connectivity(ctx: ExecutionContext) -> bool:
+    """Testa conectividade com o repositório Helm antes de instalar."""
+    if ctx.dry_run:
+        return True
+    
+    logger.info("Testando conectividade com charts.jetstack.io")
+    typer.echo("  [1/5] Testando conectividade com charts.jetstack.io...")
     
     try:
-        # O helm_upgrade_install agora limpa releases pendentes automaticamente
-        helm_upgrade_install(
-            release="cert-manager",
-            chart=CHART_NAME,
-            namespace=NAMESPACE,
-            ctx=ctx,
-            repo="jetstack",
-            repo_url=CHART_REPO,
-            create_namespace=True,
-            extra_args=[
-                "--set", "installCRDs=true",
-                "--set", "webhook.timeoutSeconds=30",
-                "--set", "startupapicheck.timeout=5m",
-                "--set", "startupapicheck.enabled=true",
-                # Aumenta recursos para ambientes mais lentos
-                "--set", "webhook.replicaCount=1",
-                "--set", "cainjector.replicaCount=1",
-                "--wait",  # Espera o Helm considerar o release deployed
-                "--timeout", "10m",
-            ],
+        start = time.time()
+        result = subprocess.run(
+            ["curl", "-sI", "--connect-timeout", "15", f"{CHART_REPO}/index.yaml"],
+            capture_output=True,
+            text=True,
+            timeout=20,
         )
-        return True
-    except Exception as e:
-        typer.secho(f"✗ Erro na instalação do Helm: {e}", fg=typer.colors.RED)
-        ctx.errors.append(f"cert-manager: falha na instalação Helm - {e}")
+        elapsed = time.time() - start
+        
+        if result.returncode == 0 and "200" in result.stdout:
+            logger.info(f"Repositório Helm acessível em {elapsed:.2f}s")
+            typer.secho(f"  ✓ Repositório Helm acessível ({elapsed:.2f}s)", fg=typer.colors.GREEN)
+            return True
+        else:
+            logger.error(f"Repositório retornou erro: {result.stdout[:200]}")
+            typer.secho(f"  ✗ Repositório retornou erro: {result.stdout[:100]}", fg=typer.colors.RED)
+            return False
+    except subprocess.TimeoutExpired:
+        logger.error("Timeout ao conectar com charts.jetstack.io")
+        typer.secho("  ✗ Timeout ao conectar com charts.jetstack.io (>15s)", fg=typer.colors.RED)
         return False
+    except Exception as e:
+        logger.error(f"Erro de conectividade: {e}")
+        typer.secho(f"  ✗ Erro de conectividade: {e}", fg=typer.colors.RED)
+        return False
+
+
+def _test_image_registry_connectivity(ctx: ExecutionContext) -> bool:
+    """Testa conectividade com o registry de imagens."""
+    if ctx.dry_run:
+        return True
+    
+    logger.info("Testando conectividade com quay.io (registry de imagens)")
+    typer.echo("  [2/5] Testando conectividade com quay.io (registry de imagens)...")
+    
+    try:
+        start = time.time()
+        result = subprocess.run(
+            ["curl", "-sI", "--connect-timeout", "15", "https://quay.io/v2/"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        elapsed = time.time() - start
+        
+        # quay.io retorna 401 para /v2/ sem auth, mas isso significa que está acessível
+        if result.returncode == 0 and ("200" in result.stdout or "401" in result.stdout):
+            logger.info(f"Registry quay.io acessível em {elapsed:.2f}s")
+            typer.secho(f"  ✓ Registry quay.io acessível ({elapsed:.2f}s)", fg=typer.colors.GREEN)
+            return True
+        else:
+            logger.warning(f"Registry pode estar inacessível: {result.stdout[:100]}")
+            typer.secho(f"  ⚠ Registry pode estar inacessível", fg=typer.colors.YELLOW)
+            return True  # Não bloqueia, apenas avisa
+    except Exception as e:
+        logger.warning(f"Não foi possível testar registry: {e}")
+        typer.secho(f"  ⚠ Não foi possível testar registry: {e}", fg=typer.colors.YELLOW)
+        return True  # Não bloqueia
+
+
+def _add_helm_repo(ctx: ExecutionContext) -> bool:
+    """Adiciona e atualiza o repositório Helm."""
+    if ctx.dry_run:
+        typer.echo("  [3/5] [dry-run] Adicionando repositório Helm jetstack...")
+        return True
+    
+    logger.info("Adicionando repositório Helm jetstack")
+    typer.echo("  [3/5] Adicionando repositório Helm jetstack...")
+    
+    try:
+        start = time.time()
+        
+        # Adiciona repo
+        result = subprocess.run(
+            ["helm", "repo", "add", "jetstack", CHART_REPO, "--force-update"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"Falha ao adicionar repo: {result.stderr}")
+            typer.secho(f"  ✗ Falha ao adicionar repo: {result.stderr[:100]}", fg=typer.colors.RED)
+            return False
+        
+        elapsed_add = time.time() - start
+        logger.info(f"Repo adicionado em {elapsed_add:.2f}s")
+        typer.echo(f"      Repo adicionado ({elapsed_add:.2f}s)")
+        
+        # Atualiza repo
+        typer.echo("      Atualizando índice do repositório...")
+        start = time.time()
+        
+        result = subprocess.run(
+            ["helm", "repo", "update", "jetstack"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        
+        elapsed_update = time.time() - start
+        
+        if result.returncode != 0:
+            logger.error(f"Falha ao atualizar repo: {result.stderr}")
+            typer.secho(f"  ✗ Falha ao atualizar repo: {result.stderr[:100]}", fg=typer.colors.RED)
+            return False
+        
+        logger.info(f"Repo atualizado em {elapsed_update:.2f}s")
+        typer.secho(f"  ✓ Repositório configurado ({elapsed_add + elapsed_update:.2f}s total)", fg=typer.colors.GREEN)
+        return True
+        
+    except subprocess.TimeoutExpired:
+        logger.error("Timeout ao configurar repositório Helm")
+        typer.secho("  ✗ Timeout ao configurar repositório (>60s)", fg=typer.colors.RED)
+        return False
+    except Exception as e:
+        logger.error(f"Erro ao configurar repo: {e}")
+        typer.secho(f"  ✗ Erro: {e}", fg=typer.colors.RED)
+        return False
+
+
+def _run_helm_install(ctx: ExecutionContext) -> bool:
+    """Executa o helm upgrade --install."""
+    if ctx.dry_run:
+        typer.echo("  [4/5] [dry-run] Executando helm upgrade --install...")
+        return True
+    
+    logger.info("Executando helm upgrade --install cert-manager")
+    typer.echo("  [4/5] Executando helm upgrade --install cert-manager...")
+    typer.echo("        (isso pode levar vários minutos)")
+    
+    cmd = [
+        "helm", "upgrade", "--install", "cert-manager", "jetstack/cert-manager",
+        "-n", NAMESPACE,
+        "--create-namespace",
+        "--set", "installCRDs=true",
+        "--set", "webhook.timeoutSeconds=30",
+        "--set", "startupapicheck.timeout=5m",
+        "--set", "startupapicheck.enabled=true",
+        "--set", "webhook.replicaCount=1",
+        "--set", "cainjector.replicaCount=1",
+        "--wait",
+        "--timeout", "15m",
+        "--debug",  # Mais logs
+    ]
+    
+    logger.info(f"Comando: {' '.join(cmd)}")
+    
+    try:
+        start = time.time()
+        
+        # Executa com output em tempo real para ver progresso
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        
+        output_lines = []
+        last_log_time = time.time()
+        
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            if line:
+                output_lines.append(line)
+                logger.debug(line.strip())
+                
+                # Mostra progresso a cada 30s
+                if time.time() - last_log_time > 30:
+                    elapsed = int(time.time() - start)
+                    typer.echo(f"        ... ainda instalando ({elapsed}s)")
+                    last_log_time = time.time()
+        
+        elapsed = time.time() - start
+        return_code = process.poll()
+        
+        if return_code == 0:
+            logger.info(f"Helm install concluído em {elapsed:.2f}s")
+            typer.secho(f"  ✓ Helm install concluído ({elapsed:.2f}s)", fg=typer.colors.GREEN)
+            return True
+        else:
+            output = "".join(output_lines[-20:])  # Últimas 20 linhas
+            logger.error(f"Helm install falhou (código {return_code}): {output}")
+            typer.secho(f"  ✗ Helm install falhou (código {return_code})", fg=typer.colors.RED)
+            
+            # Mostra as últimas linhas do erro
+            typer.echo("\n  Últimas linhas do log:")
+            for line in output_lines[-10:]:
+                typer.echo(f"    {line.strip()}")
+            
+            return False
+            
+    except Exception as e:
+        logger.error(f"Erro durante helm install: {e}")
+        typer.secho(f"  ✗ Erro: {e}", fg=typer.colors.RED)
+        return False
+
+
+def _verify_installation(ctx: ExecutionContext) -> bool:
+    """Verifica se os pods estão rodando."""
+    if ctx.dry_run:
+        typer.echo("  [5/5] [dry-run] Verificando instalação...")
+        return True
+    
+    logger.info("Verificando pods do cert-manager")
+    typer.echo("  [5/5] Verificando pods do cert-manager...")
+    
+    try:
+        result = subprocess.run(
+            ["kubectl", "get", "pods", "-n", NAMESPACE, "-o", "wide"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        
+        if result.returncode == 0:
+            typer.echo(f"\n{result.stdout}")
+            
+            # Verifica se todos estão Running
+            if "Running" in result.stdout and "0/1" not in result.stdout:
+                logger.info("Todos os pods estão Running")
+                typer.secho("  ✓ Todos os pods estão Running", fg=typer.colors.GREEN)
+                return True
+            else:
+                logger.warning("Alguns pods podem não estar prontos")
+                typer.secho("  ⚠ Alguns pods podem não estar prontos", fg=typer.colors.YELLOW)
+                return True  # Não falha, o wait_for_webhook vai verificar
+        else:
+            logger.error(f"Erro ao verificar pods: {result.stderr}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Erro ao verificar pods: {e}")
+        return False
+
+
+def _install_cert_manager_helm(ctx: ExecutionContext) -> bool:
+    """Instala cert-manager via Helm com logs detalhados."""
+    typer.secho("\n📦 Instalando cert-manager via Helm...", fg=typer.colors.CYAN, bold=True)
+    logger.info("Iniciando instalação do cert-manager")
+    
+    start_total = time.time()
+    
+    # Etapa 1: Testa conectividade com repo Helm
+    if not _test_helm_repo_connectivity(ctx):
+        typer.secho(
+            "\n⚠ Problema de conectividade com o repositório Helm.",
+            fg=typer.colors.YELLOW,
+        )
+        typer.echo("  Teste manual: curl -sI https://charts.jetstack.io/index.yaml")
+        if not typer.confirm("Tentar instalar mesmo assim?", default=False):
+            return False
+    
+    # Etapa 2: Testa conectividade com registry de imagens
+    _test_image_registry_connectivity(ctx)
+    
+    # Etapa 3: Adiciona e atualiza repo Helm
+    if not _add_helm_repo(ctx):
+        return False
+    
+    # Etapa 4: Executa helm install
+    if not _run_helm_install(ctx):
+        _show_diagnostic_info(ctx)
+        return False
+    
+    # Etapa 5: Verifica instalação
+    _verify_installation(ctx)
+    
+    elapsed_total = time.time() - start_total
+    logger.info(f"Instalação do cert-manager concluída em {elapsed_total:.2f}s")
+    typer.secho(f"\n✓ Instalação concluída em {elapsed_total:.2f}s", fg=typer.colors.GREEN)
+    
+    return True
+
+
+def _show_diagnostic_info(ctx: ExecutionContext) -> None:
+    """Mostra informações de diagnóstico quando falha."""
+    if ctx.dry_run:
+        return
+    
+    typer.secho("\n🔍 Informações de diagnóstico:", fg=typer.colors.YELLOW, bold=True)
+    
+    # Pods
+    typer.echo("\n  Pods:")
+    try:
+        result = subprocess.run(
+            ["kubectl", "get", "pods", "-n", NAMESPACE, "-o", "wide"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.stdout:
+            for line in result.stdout.strip().split("\n"):
+                typer.echo(f"    {line}")
+    except Exception:
+        typer.echo("    (não foi possível obter pods)")
+    
+    # Eventos recentes
+    typer.echo("\n  Eventos recentes:")
+    try:
+        result = subprocess.run(
+            ["kubectl", "get", "events", "-n", NAMESPACE, "--sort-by=.lastTimestamp"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.stdout:
+            lines = result.stdout.strip().split("\n")
+            for line in lines[-10:]:  # Últimos 10 eventos
+                typer.echo(f"    {line[:120]}")
+    except Exception:
+        typer.echo("    (não foi possível obter eventos)")
+    
+    # Helm status
+    typer.echo("\n  Helm release status:")
+    try:
+        result = subprocess.run(
+            ["helm", "status", "cert-manager", "-n", NAMESPACE],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.stdout:
+            for line in result.stdout.strip().split("\n")[:15]:
+                typer.echo(f"    {line}")
+    except Exception:
+        typer.echo("    (não foi possível obter status do Helm)")
 
 
 def _apply_manifest_with_retry(
