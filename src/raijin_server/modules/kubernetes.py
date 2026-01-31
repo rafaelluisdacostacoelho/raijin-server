@@ -17,6 +17,12 @@ from raijin_server.utils import (
 )
 
 
+CALICO_VERSION = "v3.28.0"
+CALICO_URL = f"https://raw.githubusercontent.com/projectcalico/calico/{CALICO_VERSION}/manifests/calico.yaml"
+DEFAULT_CNI = os.environ.get("RAIJIN_CNI", "calico").lower()  # calico|none
+FORCE_CNI = os.environ.get("RAIJIN_FORCE_CNI", "0") == "1"
+
+
 def _cleanup_old_repo(ctx: ExecutionContext) -> None:
     """Remove repo legado apt.kubernetes.io se existir para evitar erro 404."""
 
@@ -47,6 +53,69 @@ def _reset_cluster(ctx: ExecutionContext) -> None:
     run_cmd(["rm", "-rf", "/etc/cni/net.d"], ctx, check=False)
     run_cmd(["rm", "-rf", "/var/lib/cni"], ctx, check=False)
     typer.secho("✓ Limpeza concluida.", fg=typer.colors.GREEN)
+
+
+def _cni_present(ctx: ExecutionContext) -> bool:
+    """Detecta se ja existe um CNI aplicado (qualquer DaemonSet tipico)."""
+
+    result = run_cmd(
+        [
+            "kubectl",
+            "get",
+            "daemonset",
+            "-n",
+            "kube-system",
+            "-o",
+            "jsonpath={.items[*].metadata.name}",
+        ],
+        ctx,
+        check=False,
+    )
+    if result.returncode != 0:
+        return False
+    names = (result.stdout or "").split()
+    for name in names:
+        if any(token in name for token in ("calico", "cilium", "flannel", "weave", "canal")):
+            return True
+    return False
+
+
+def _apply_calico(pod_cidr: str, ctx: ExecutionContext) -> None:
+    """Aplica Calico com CIDR alinhado ao podSubnet informado."""
+
+    typer.echo(f"Aplicando Calico ({CALICO_VERSION}) com pod CIDR {pod_cidr}...")
+
+    if ctx.dry_run:
+        typer.echo("[dry-run] kubectl apply -f <calico.yaml>")
+        return
+
+    cmd = (
+        f"curl -fsSL --retry 3 --retry-delay 2 {CALICO_URL} "
+        f"| sed 's#192.168.0.0/16#{pod_cidr}#g' "
+        f"| kubectl apply -f -"
+    )
+    run_cmd(cmd, ctx, use_shell=True)
+
+    # Aguarda o daemonset subir para evitar Node NotReady por falta de CNI
+    run_cmd(
+        ["kubectl", "-n", "kube-system", "rollout", "status", "daemonset/calico-node", "--timeout", "300s"],
+        ctx,
+        check=False,
+    )
+    run_cmd(
+        [
+            "kubectl",
+            "-n",
+            "kube-system",
+            "rollout",
+            "status",
+            "deployment/calico-kube-controllers",
+            "--timeout",
+            "300s",
+        ],
+        ctx,
+        check=False,
+    )
 
 
 def run(ctx: ExecutionContext) -> None:
@@ -238,3 +307,27 @@ cgroupDriver: systemd
 
     typer.echo("Comando de join para workers:")
     run_cmd(["kubeadm", "token", "create", "--print-join-command"], ctx, check=False)
+
+    # CNI padrao: Calico (pode ser desabilitado via RAIJIN_CNI=none)
+    cni_choice = DEFAULT_CNI
+    if cni_choice == "none":
+        typer.secho(
+            "CNI nao aplicado (RAIJIN_CNI=none). Node permanecera NotReady ate aplicar um CNI manual.",
+            fg=typer.colors.YELLOW,
+        )
+    else:
+        if _cni_present(ctx) and not FORCE_CNI:
+            typer.secho("CNI ja detectado em kube-system; pulando aplicacao automatica (defina RAIJIN_FORCE_CNI=1 para reaplicar).", fg=typer.colors.YELLOW)
+        else:
+            _apply_calico(pod_cidr, ctx)
+
+    # Pequeno health check basico para sinalizar ao usuario
+    typer.echo("Validando node apos CNI...")
+    run_cmd([
+        "kubectl",
+        "wait",
+        "--for=condition=Ready",
+        "nodes",
+        "--all",
+        "--timeout=180s",
+    ], ctx, check=False)

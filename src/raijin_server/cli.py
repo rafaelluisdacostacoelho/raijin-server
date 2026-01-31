@@ -85,9 +85,9 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "vpn": vpn.run,
     "kubernetes": kubernetes.run,
     "calico": calico.run,
+    "traefik": traefik.run,  # mover antes do cert_manager para refletir dependencia
     "cert_manager": cert_manager.run,
     "istio": istio.run,
-    "traefik": traefik.run,
     "kong": kong.run,
     "minio": minio.run,
     "prometheus": prometheus.run,

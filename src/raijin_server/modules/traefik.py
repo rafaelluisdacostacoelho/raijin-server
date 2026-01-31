@@ -15,8 +15,7 @@ def run(ctx: ExecutionContext) -> None:
     values = [
         "ingressClass.enabled=true",
         "ingressClass.isDefaultClass=true",
-        "ports.web.redirectTo=websecure=true",
-        "ports.websecure.tls.enabled=true",
+        "ports.web.redirectTo=websecure",  # valor esperado é o nome da porta de destino
         "service.type=LoadBalancer",
         f"certificatesResolvers.letsencrypt.acme.email={acme_email}",
         "certificatesResolvers.letsencrypt.acme.storage=/data/acme.json",

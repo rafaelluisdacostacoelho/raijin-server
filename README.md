@@ -152,6 +152,9 @@ sudo -E ~/.venvs/midgard/bin/raijin-server debug journal --service containerd --
 - **[AUDIT.md](AUDIT.md)**: Relatório completo de auditoria e melhorias implementadas
 - **[ARCHITECTURE.md](ARCHITECTURE.md)**: Arquitetura técnica do ambiente
 - **[SECURITY.md](SECURITY.md)**: Políticas de segurança e reporte de vulnerabilidades
+- **Publicação PyPI**: ver seção "Publicar no PyPI" abaixo
+- **CNI automático**: Calico aplicado automaticamente no passo Kubernetes (override com `RAIJIN_CNI=none`)
+	- Para reaplicar CNI (forçar mesmo se já houver): `RAIJIN_FORCE_CNI=1`
 
 ## Fluxo de Execução Recomendado
 
@@ -308,6 +311,46 @@ bash "$SCRIPT_PATH"
 
 O helper garante o caminho absoluto correto independentemente de onde o pacote foi instalado.
 
+## Publicar no PyPI
+
+Use o venv local do repositório (`.venv`) para garantir dependências corretas:
+
+```bash
+cd /home/rafael/github/raijin-server
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip build twine
+```
+
+Gerar artefatos limpos:
+
+```bash
+rm -rf dist build
+python -m build --sdist --wheel --outdir dist
+```
+
+Publicar no PyPI (requere token):
+
+```bash
+export TWINE_USERNAME="__token__"
+export TWINE_PASSWORD="pypi-xxxxx"  # token do PyPI
+python -m twine upload dist/*
+```
+
+Opcional: validar no TestPyPI antes de publicar (precisa token de TestPyPI):
+
+```bash
+export TWINE_USERNAME="__token__"
+export TWINE_PASSWORD="pypi-xxxxx"  # token do TestPyPI
+python -m twine upload --repository testpypi dist/*
+```
+
+Depois de publicar, atualize/instale:
+
+```bash
+pip install -U raijin-server
+```
+
 ## Teste de ingress (Apokolips)
 
 O módulo [src/raijin_server/modules/apokolips_demo.py](src/raijin_server/modules/apokolips_demo.py) cria um namespace dedicado, ConfigMap com HTML, Deployment NGINX, Service e Ingress Traefik com uma landing page "Apokolips" para validar o tráfego externo.
@@ -416,17 +459,18 @@ O Twine é a ferramenta oficial para enviar pacotes Python ao PyPI com upload se
 Passo a passo:
 ```bash
 # 1) Gere artefatos
-python -m build --sdist --wheel --outdir dist/
+python3 -m pip install --user build
+python3 -m build --sdist --wheel --outdir dist/
 
 # 2) Configure o token (crie em https://pypi.org/manage/account/token/)
 export TWINE_USERNAME=__token__
 export TWINE_PASSWORD="<seu-token>"
 
 # 3) Envie para o PyPI
-python -m twine upload dist/*
+python3 -m twine upload dist/*
 
 # 4) Verifique instalação
-python -m pip install -U raijin-server
+python3 -m pip install -U raijin-server
 raijin-server --version
 ```
 
