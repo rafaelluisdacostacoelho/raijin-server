@@ -124,6 +124,21 @@ def check_k8s_pods_in_namespace(namespace: str, ctx: ExecutionContext, timeout: 
     )
 
 
+def check_swap_disabled(ctx: ExecutionContext) -> tuple[bool, str]:
+    """Confirma que nao ha swap ativa (requisito kubeadm/kubelet)."""
+    if ctx.dry_run:
+        return True, "dry-run"
+    try:
+        with open("/proc/swaps") as f:
+            lines = f.read().strip().splitlines()
+        # /proc/swaps tem header + linhas; se so header, swap esta off
+        if len(lines) <= 1:
+            return True, "swap desativada"
+        return False, "swap ativa (remova entradas do fstab e execute swapoff -a)"
+    except Exception as exc:
+        return False, f"falha ao verificar swap: {exc}"
+
+
 def check_helm_release(release: str, namespace: str, ctx: ExecutionContext) -> Tuple[bool, str]:
     """Verifica status de um release Helm."""
     if ctx.dry_run:
@@ -216,6 +231,13 @@ def verify_kubernetes(ctx: ExecutionContext) -> bool:
 
     services = ["kubelet", "containerd"]
     all_ok = True
+
+    swap_ok, swap_msg = check_swap_disabled(ctx)
+    if swap_ok:
+        typer.secho(f"  ✓ Swap: {swap_msg}", fg=typer.colors.GREEN)
+    else:
+        typer.secho(f"  ✗ Swap: {swap_msg}", fg=typer.colors.RED)
+        all_ok = False
 
     for service in services:
         ok, status = check_systemd_service(service, ctx)

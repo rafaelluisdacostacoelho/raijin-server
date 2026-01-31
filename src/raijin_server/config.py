@@ -78,15 +78,15 @@ class ConfigManager:
             "modules": {
                 "network": {
                     "interface": "ens18",
-                    "address": "192.168.0.10/24",
-                    "gateway": "192.168.0.1",
-                    "dns": "1.1.1.1,8.8.8.8",
+                    "address": "192.168.1.81/24",
+                    "gateway": "192.168.1.254",
+                    "dns": "177.128.80.44,177.128.80.45",
                 },
                 "kubernetes": {
                     "pod_cidr": "10.244.0.0/16",
                     "service_cidr": "10.96.0.0/12",
                     "cluster_name": "raijin",
-                    "advertise_address": "0.0.0.0",
+                    "advertise_address": "192.168.1.81",
                 },
                 "calico": {
                     "pod_cidr": "10.244.0.0/16",

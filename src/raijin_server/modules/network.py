@@ -124,9 +124,9 @@ def run(ctx: ExecutionContext) -> None:
         )
 
     iface = typer.prompt("Interface", default="ens18")
-    address = typer.prompt("Endereco CIDR", default="192.168.0.10/24")
-    gateway = typer.prompt("Gateway", default="192.168.0.1")
-    dns = typer.prompt("DNS (separe por virgula)", default="1.1.1.1,8.8.8.8")
+    address = typer.prompt("Endereco CIDR", default="192.168.1.81/24")
+    gateway = typer.prompt("Gateway", default="192.168.1.254")
+    dns = typer.prompt("DNS (separe por virgula)", default="177.128.80.44,177.128.80.45")
 
     dns_list = ",".join([item.strip() for item in dns.split(",") if item.strip()])
     netplan_content = f"""network:

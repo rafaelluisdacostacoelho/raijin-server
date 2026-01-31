@@ -146,6 +146,11 @@ def run(ctx: ExecutionContext) -> None:
     enable_service("containerd", ctx)
     enable_service("kubelet", ctx)
 
+    # Garante swap off antes de prosseguir (requisito kubeadm)
+    typer.echo("Desabilitando swap (requisito Kubernetes)...")
+    run_cmd(["swapoff", "-a"], ctx, check=False)
+    run_cmd("sed -i '/swap/d' /etc/fstab", ctx, use_shell=True, check=False)
+
     # kubeadm exige ip_forward=1; sobrepoe ajuste de hardening para fase de cluster.
     # Desabilita IPv6 completamente para evitar erros de preflight e simplificar rede
     sysctl_k8s = """# Kubernetes network settings
@@ -164,7 +169,19 @@ net.ipv6.conf.lo.disable_ipv6=1
     pod_cidr = typer.prompt("Pod CIDR", default="10.244.0.0/16")
     service_cidr = typer.prompt("Service CIDR", default="10.96.0.0/12")
     cluster_name = typer.prompt("Nome do cluster", default="raijin")
-    advertise_address = typer.prompt("API advertise address", default="0.0.0.0")
+    default_adv = "192.168.1.81"
+    advertise_address = typer.prompt("API advertise address", default=default_adv)
+    if advertise_address != default_adv:
+        typer.secho(
+            f"⚠ Para ambiente atual use {default_adv} (IP LAN, evita NAT).", fg=typer.colors.YELLOW
+        )
+        if not typer.confirm(f"Deseja forcar {default_adv}?", default=True):
+            typer.secho(
+                f"Usando valor informado: {advertise_address}. Certifique-se que todos os nos alcancem esse IP.",
+                fg=typer.colors.YELLOW,
+            )
+        else:
+            advertise_address = default_adv
 
     kubeadm_config = f"""apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration

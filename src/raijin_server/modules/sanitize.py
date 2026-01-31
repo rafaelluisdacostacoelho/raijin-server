@@ -7,7 +7,14 @@ from pathlib import Path
 
 import typer
 
-from raijin_server.utils import ExecutionContext, require_root, run_cmd
+from raijin_server.utils import ExecutionContext, require_root, run_cmd, write_file
+
+# Defaults alinhados com configuracao de rede solicitada
+NETPLAN_IFACE = "ens18"
+NETPLAN_ADDRESS = "192.168.1.81/24"
+NETPLAN_GATEWAY = "192.168.1.254"
+NETPLAN_DNS = "177.128.80.44,177.128.80.45"
+NETPLAN_PATH = Path("/etc/netplan/01-raijin-static.yaml")
 
 SYSTEMD_SERVICES = [
     "kubelet",
@@ -46,6 +53,44 @@ APT_MARKERS = [
     "/etc/apt/sources.list.d/kubernetes.list",
     "/etc/apt/keyrings/kubernetes-apt-keyring.gpg",
 ]
+
+
+def _ensure_netplan(ctx: ExecutionContext) -> None:
+    """Garante que o netplan esteja com IP fixo esperado; se ja estiver, mostra OK."""
+
+    desired = f"""network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    {NETPLAN_IFACE}:
+      dhcp4: false
+      addresses: [{NETPLAN_ADDRESS}]
+      gateway4: {NETPLAN_GATEWAY}
+      nameservers:
+        addresses: [{NETPLAN_DNS}]
+"""
+
+    existing = None
+    if NETPLAN_PATH.exists():
+        try:
+            existing = NETPLAN_PATH.read_text()
+        except Exception:
+            existing = None
+
+    if existing and all(x in existing for x in (NETPLAN_ADDRESS, NETPLAN_GATEWAY, NETPLAN_DNS)):
+        typer.secho(
+            f"\n✓ Netplan ja configurado com {NETPLAN_ADDRESS} / gw {NETPLAN_GATEWAY} / dns {NETPLAN_DNS}",
+            fg=typer.colors.GREEN,
+        )
+        return
+
+    typer.echo("Aplicando netplan padrao antes da limpeza...")
+    write_file(NETPLAN_PATH, desired, ctx)
+    run_cmd(["netplan", "apply"], ctx, check=False)
+    typer.secho(
+        f"✓ Netplan ajustado para {NETPLAN_ADDRESS} (gw {NETPLAN_GATEWAY}, dns {NETPLAN_DNS})",
+        fg=typer.colors.GREEN,
+    )
 
 
 def _stop_services(ctx: ExecutionContext) -> None:
@@ -130,6 +175,9 @@ def run(ctx: ExecutionContext) -> None:
         if not proceed:
             typer.echo("Sanitizacao cancelada pelo usuario.")
             return
+
+    # Primeiro passo: garantir netplan consistente, sem quebrar ao limpar
+    _ensure_netplan(ctx)
 
     _stop_services(ctx)
     _kubeadm_reset(ctx)

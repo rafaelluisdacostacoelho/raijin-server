@@ -11,6 +11,8 @@ CLI em Python (Typer) para automatizar setup e hardening de servidores Ubuntu Se
 - Arquitetura: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Auditoria: [AUDIT.md](AUDIT.md)
 - Segurança: [SECURITY.md](SECURITY.md)
+- Acesso SSH (Windows): [docs/SSH_WINDOWS.md](docs/SSH_WINDOWS.md)
+- VPN para acesso remoto (WireGuard): [docs/VPN_REMOTE_ACCESS.md](docs/VPN_REMOTE_ACCESS.md)
 
 ## Destaques
 
@@ -27,6 +29,12 @@ CLI em Python (Typer) para automatizar setup e hardening de servidores Ubuntu Se
 - ✅ **Modo Dry-run**: Simula execução sem aplicar mudanças
 
 ## Requisitos
+ Ubuntu Server 20.04+ com Python 3 disponível. Se precisar instalar/atualizar no host alvo:
+
+ ```bash
+ sudo apt update
+ sudo apt install -y python3 python3-venv python3-pip
+ ```
 
 ## Instalação (sempre em venv midgard)
 
@@ -76,6 +84,10 @@ sudo -E ~/.venvs/midgard/bin/raijin-server validate
 # Menu visual com atalho para módulos
 sudo -E ~/.venvs/midgard/bin/raijin-server menu
 ```
+
+### Rollback de módulos
+- No menu, após escolher o módulo, selecione `r` para rollback; se houver dependentes já executados, será pedido confirmacao para rollback em cascata dos dependentes antes.
+- Linha de comando: `sudo -E ~/.venvs/midgard/bin/raijin-server rollback <modulo> --cascade/--no-cascade` (best-effort; alguns módulos podem exigir limpeza manual). Caso seja apenas para revisar o efeito, use `-n/--dry-run` no comando principal para não aplicar.
 
 ### Execução Direta de Módulos
 ```bash

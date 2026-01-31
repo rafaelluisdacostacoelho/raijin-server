@@ -45,7 +45,7 @@ from raijin_server.modules import (
     vpn,
 )
 from raijin_server.utils import ExecutionContext, logger, active_log_file, available_log_files, page_text, ensure_tool
-from raijin_server.validators import validate_system_requirements, check_module_dependencies
+from raijin_server.validators import validate_system_requirements, check_module_dependencies, MODULE_DEPENDENCIES
 from raijin_server.healthchecks import run_health_check
 from raijin_server.config import ConfigManager
 
@@ -101,6 +101,11 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "velero": velero.run,
     "kafka": kafka.run,
     "full_install": full_install.run,
+}
+
+# Rollbacks sao opcionais; por padrao apenas removem marcador de conclusao e avisam
+ROLLBACK_HANDLERS: Dict[str, Callable[[ExecutionContext], None]] = {
+    # Exemplos para futuras customizacoes: "traefik": traefik.rollback
 }
 
 MODULE_DESCRIPTIONS: Dict[str, str] = {
@@ -253,6 +258,79 @@ def _is_completed(name: str) -> bool:
     return _state_file(name).exists()
 
 
+def _clear_completed(name: str) -> None:
+    try:
+        path = _state_file(name)
+        if path.exists():
+            path.unlink()
+            typer.secho(f"Estado removido: {name}", fg=typer.colors.YELLOW)
+    except Exception as exc:
+        console.print(f"[yellow]Nao foi possivel limpar estado de {name}: {exc}[/yellow]")
+
+
+def _dependents_of(module: str) -> list[str]:
+    dependents = []
+    for mod, deps in MODULE_DEPENDENCIES.items():
+        if module in deps:
+            dependents.append(mod)
+    return dependents
+
+
+def _default_rollback(exec_ctx: ExecutionContext, name: str) -> None:
+    """Rollback padrao: nao aplica alteracoes, apenas sinaliza ausencia de implementacao."""
+    if exec_ctx.dry_run:
+        typer.secho(f"[dry-run] Rollback para '{name}' nao automatizado (necessario reverter manualmente).", fg=typer.colors.YELLOW)
+    else:
+        typer.secho(
+            f"Rollback para '{name}' ainda nao foi automatizado. Reverta recursos manualmente e reexecute se necessario.",
+            fg=typer.colors.YELLOW,
+        )
+
+
+def _get_rollback_handler(name: str) -> Callable[[ExecutionContext], None]:
+    return ROLLBACK_HANDLERS.get(name, lambda ctx: _default_rollback(ctx, name))
+
+
+def _rollback_module(
+    ctx: typer.Context,
+    name: str,
+    *,
+    cascade_prompt: bool = True,
+    visited: set[str] | None = None,
+) -> None:
+    handler = _get_rollback_handler(name)
+    exec_ctx = ctx.obj or ExecutionContext()
+
+    visited = visited or set()
+    if name in visited:
+        return
+    visited.add(name)
+
+    dependents = _dependents_of(name)
+    completed_dependents = [dep for dep in dependents if _is_completed(dep)]
+
+    if completed_dependents and cascade_prompt:
+        typer.secho(
+            "Dependencias detectadas apos este modulo: " + ", ".join(completed_dependents),
+            fg=typer.colors.YELLOW,
+        )
+        typer.secho(
+            "Rollback em cascata vai tentar reverter esses modulos primeiro para evitar estado inconsistente.",
+            fg=typer.colors.YELLOW,
+        )
+        if not typer.confirm("Prosseguir com rollback em cascata?", default=False):
+            typer.secho("Rollback cancelado.", fg=typer.colors.RED)
+            return
+
+        for dep in completed_dependents:
+            _rollback_module(ctx, dep, cascade_prompt=False, visited=visited)
+
+    typer.secho(f"\n[ROLLBACK] {name}", fg=typer.colors.CYAN, bold=True)
+    handler(exec_ctx)
+    _clear_completed(name)
+    typer.secho(f"Rollback finalizado (best-effort) para {name}\n", fg=typer.colors.GREEN)
+
+
 def _render_menu(dry_run: bool) -> int:
     table = Table(
         title="Selecione um modulo para executar",
@@ -326,9 +404,21 @@ def interactive_menu(ctx: typer.Context) -> None:
             console.print("[red]Opcao invalida[/red]")
             continue
 
+        action = Prompt.ask(
+            "Acao (e=executar, r=rollback, c=cancelar)",
+            choices=["e", "r", "c"],
+            default="e",
+        )
+
         exec_ctx = ExecutionContext(dry_run=current_dry_run)
         ctx.obj = exec_ctx
-        _run_module(ctx, name)
+
+        if action == "e":
+            _run_module(ctx, name)
+        elif action == "r":
+            _rollback_module(ctx, name)
+        else:
+            console.print("[yellow]Acao cancelada[/yellow]")
         # Loop continua e menu eh re-renderizado, refletindo status atualizado quando nao eh dry-run.
 
 
@@ -373,6 +463,21 @@ def menu(ctx: typer.Context) -> None:
     """Abre o menu interativo colorido."""
 
     interactive_menu(ctx)
+
+
+@app.command()
+def rollback(
+    ctx: typer.Context,
+    module: str = typer.Argument(..., help="Modulo a reverter"),
+    cascade: bool = typer.Option(
+        True,
+        "--cascade/--no-cascade",
+        help="Quando habilitado, pergunta e aplica rollback em dependentes concluidos primeiro",
+    ),
+) -> None:
+    """Executa rollback best-effort de um modulo (com aviso sobre dependencias)."""
+
+    _rollback_module(ctx, module, cascade_prompt=cascade)
 
 
 @app.command()

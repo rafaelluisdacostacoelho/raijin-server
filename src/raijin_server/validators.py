@@ -15,6 +15,27 @@ import typer
 
 from raijin_server.utils import ExecutionContext, logger
 
+# Grafo de dependencias entre modulos (usado por validacoes e funcoes de rollback)
+MODULE_DEPENDENCIES = {
+    "kubernetes": ["essentials", "network", "firewall"],
+    "calico": ["kubernetes"],
+    "cert_manager": ["kubernetes", "traefik"],
+    "istio": ["kubernetes", "calico"],
+    "traefik": ["kubernetes"],
+    "kong": ["kubernetes"],
+    "minio": ["kubernetes"],
+    "prometheus": ["kubernetes"],
+    "grafana": ["kubernetes", "prometheus"],
+    "loki": ["kubernetes"],
+    "secrets": ["kubernetes"],
+    "harness": ["kubernetes"],
+    "velero": ["kubernetes"],
+    "kafka": ["kubernetes"],
+    "observability_ingress": ["traefik", "prometheus", "grafana"],
+    "observability_dashboards": ["prometheus", "grafana"],
+    "apokolips_demo": ["kubernetes", "traefik"],
+}
+
 
 class ValidationError(Exception):
     """Erro de validacao de pre-requisitos."""
@@ -215,30 +236,10 @@ def check_module_dependencies(module: str, ctx: ExecutionContext) -> bool:
     Returns:
         True se todas as dependencias foram satisfeitas
     """
-    dependencies = {
-        "kubernetes": ["essentials", "network", "firewall"],
-        "calico": ["kubernetes"],
-        "cert_manager": ["kubernetes", "traefik"],
-        "istio": ["kubernetes", "calico"],
-        "traefik": ["kubernetes"],
-        "kong": ["kubernetes"],
-        "minio": ["kubernetes"],
-        "prometheus": ["kubernetes"],
-        "grafana": ["kubernetes", "prometheus"],
-        "loki": ["kubernetes"],
-        "secrets": ["kubernetes"],
-        "harness": ["kubernetes"],
-        "velero": ["kubernetes"],
-        "kafka": ["kubernetes"],
-        "observability_ingress": ["traefik", "prometheus", "grafana"],
-        "observability_dashboards": ["prometheus", "grafana"],
-        "apokolips_demo": ["kubernetes", "traefik"],
-    }
-
-    if module not in dependencies:
+    if module not in MODULE_DEPENDENCIES:
         return True
 
-    required = dependencies[module]
+    required = MODULE_DEPENDENCIES[module]
     missing = []
 
     # Verifica arquivos de estado

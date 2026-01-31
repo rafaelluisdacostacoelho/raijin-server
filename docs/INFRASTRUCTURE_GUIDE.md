@@ -4,6 +4,15 @@
 
 O Raijin Server provisiona uma infraestrutura Kubernetes completa e prodution-ready em Ubuntu Server, incluindo:
 
+## Pré-requisitos (host Ubuntu)
+
+- Ubuntu Server 20.04+ com Python 3 instalado. Se precisar instalar/atualizar:
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip
+```
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         INTERNET                                    │
