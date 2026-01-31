@@ -29,8 +29,37 @@ BACKUP_COUNT = int(os.environ.get("RAIJIN_LOG_BACKUP_COUNT", 5))
 logger = logging.getLogger("raijin-server")
 logger.setLevel(logging.INFO)
 
-file_handler = RotatingFileHandler(LOG_FILE, maxBytes=MAX_LOG_BYTES, backupCount=BACKUP_COUNT)
+
+def _build_file_handler() -> RotatingFileHandler:
+    """Cria handler com fallback para $HOME quando /var/log exige root."""
+    try:
+        return RotatingFileHandler(LOG_FILE, maxBytes=MAX_LOG_BYTES, backupCount=BACKUP_COUNT)
+    except PermissionError:
+        fallback = Path.home() / ".raijin-server.log"
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        return RotatingFileHandler(fallback, maxBytes=MAX_LOG_BYTES, backupCount=BACKUP_COUNT)
+
+
+file_handler = _build_file_handler()
 stream_handler = logging.StreamHandler()
+
+
+def active_log_file() -> Path:
+    return Path(getattr(file_handler, "baseFilename", LOG_FILE))
+
+
+def available_log_files() -> list[Path]:
+    base = active_log_file()
+    pattern = base.name + "*"
+    return [p for p in sorted(base.parent.glob(pattern)) if p.is_file()]
+
+
+def page_text(content: str) -> None:
+    pager = shutil.which("less")
+    if pager:
+        subprocess.run([pager, "-R"], input=content, text=True, check=False)
+    else:
+        typer.echo(content)
 
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 file_handler.setFormatter(formatter)
@@ -57,6 +86,13 @@ class ExecutionContext:
     timeout: int = 600  # 10 min for slow connections
     errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+    # Controle interativo/diagnostico
+    selected_steps: list[str] | None = None
+    confirm_each_step: bool = False
+    debug_snapshots: bool = False
+    post_diagnose: bool = False
+    color_prompts: bool = True
+    interactive_steps: bool = False
 
 
 def resolve_script_path(script_name: str) -> Path:

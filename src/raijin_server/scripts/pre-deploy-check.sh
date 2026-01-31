@@ -49,6 +49,7 @@ fi
 echo ""
 echo "2. Verificando Sistema Operacional..."
 if [ -f /etc/os-release ]; then
+    # shellcheck disable=SC1091
     . /etc/os-release
     if [[ "$ID" == "ubuntu" ]]; then
         VERSION_NUM=$(echo "$VERSION_ID" | cut -d. -f1)
@@ -152,7 +153,7 @@ STATE_DIRS=("/var/lib/raijin-server/state" "$HOME/.local/share/raijin-server/sta
 FOUND_STATE=0
 for dir in "${STATE_DIRS[@]}"; do
     if [[ -d "$dir" ]]; then
-        MODULE_COUNT=$(ls -1 "$dir"/*.done 2>/dev/null | wc -l)
+        MODULE_COUNT=$(find "$dir" -maxdepth 1 -name '*.done' -type f 2>/dev/null | wc -l)
         if [[ $MODULE_COUNT -gt 0 ]]; then
             check_pass "$MODULE_COUNT modulos concluidos (em $dir)"
             FOUND_STATE=1

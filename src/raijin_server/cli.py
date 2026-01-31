@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
+import subprocess
+
 import typer
 from rich import box
 from rich.console import Console
@@ -42,7 +44,7 @@ from raijin_server.modules import (
     velero,
     vpn,
 )
-from raijin_server.utils import ExecutionContext, logger
+from raijin_server.utils import ExecutionContext, logger, active_log_file, available_log_files, page_text, ensure_tool
 from raijin_server.validators import validate_system_requirements, check_module_dependencies
 from raijin_server.healthchecks import run_health_check
 from raijin_server.config import ConfigManager
@@ -129,6 +131,19 @@ MODULE_DESCRIPTIONS: Dict[str, str] = {
     "kafka": "Cluster Kafka via OCI Helm",
     "full_install": "Instalacao completa e automatizada do ambiente",
 }
+
+
+def _capture_cmd(cmd: list[str], timeout: int = 30) -> str:
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode == 0:
+            return result.stdout.strip() or "(sem saida)"
+        return (
+            f"✗ {' '.join(cmd)}\n"
+            f"{(result.stdout or '').strip()}\n{(result.stderr or '').strip()}".strip()
+        )
+    except Exception as exc:
+        return f"✗ {' '.join(cmd)} -> {exc}"
 
 
 def _run_module(ctx: typer.Context, name: str, skip_validation: bool = False) -> None:
@@ -543,6 +558,120 @@ def cert_list_issuers(ctx: typer.Context) -> None:
 
 
 # ============================================================================
+# Ferramentas de Depuração / Logs
+# ============================================================================
+debug_app = typer.Typer(help="Ferramentas de depuracao e investigacao de logs")
+app.add_typer(debug_app, name="debug")
+
+
+@debug_app.command(name="logs")
+def debug_logs(
+    lines: int = typer.Option(200, "--lines", "-n", help="Quantidade de linhas ao ler"),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Segue o log com tail -F"),
+    pager: bool = typer.Option(True, "--pager/--no-pager", help="Exibe com less"),
+) -> None:
+    """Mostra logs do raijin-server com opcao de follow."""
+
+    logs = available_log_files()
+    if not logs:
+        typer.secho("Nenhum log encontrado", fg=typer.colors.YELLOW)
+        return
+
+    main_log = active_log_file()
+    typer.echo(f"Log ativo: {main_log}")
+
+    if follow:
+        subprocess.run(["tail", "-n", str(lines), "-F", str(main_log)])
+        return
+
+    chunks = []
+    for path in logs:
+        try:
+            data = path.read_text()
+        except Exception as exc:
+            data = f"[erro ao ler {path}: {exc}]"
+        chunks.append(f"===== {path} =====\n{data}")
+
+    output = "\n\n".join(chunks)
+    if pager:
+        page_text(output)
+    else:
+        typer.echo(output)
+
+
+@debug_app.command(name="kube")
+def debug_kube(
+    ctx: typer.Context,
+    events: int = typer.Option(200, "--events", "-e", help="Quantas linhas finais de eventos exibir"),
+    namespace: Optional[str] = typer.Option(None, "--namespace", "-n", help="Filtra pods/eventos por namespace"),
+    pager: bool = typer.Option(True, "--pager/--no-pager", help="Exibe com less"),
+) -> None:
+    """Snapshot rapido de nodes, pods e eventos do cluster."""
+
+    exec_ctx = ctx.obj or ExecutionContext()
+    ensure_tool("kubectl", exec_ctx)
+
+    sections = []
+    sections.append(("kubectl get nodes -o wide", _capture_cmd(["kubectl", "get", "nodes", "-o", "wide"])))
+
+    pods_cmd: list[str] = ["kubectl", "get", "pods"]
+    if namespace:
+        pods_cmd.extend(["-n", namespace])
+    else:
+        pods_cmd.append("-A")
+    pods_cmd.extend(["-o", "wide"])
+    sections.append(("kubectl get pods", _capture_cmd(pods_cmd)))
+
+    events_cmd: list[str] = ["kubectl", "get", "events"]
+    if namespace:
+        events_cmd.extend(["-n", namespace])
+    else:
+        events_cmd.append("-A")
+    events_cmd.extend(["--sort-by=.lastTimestamp"])
+    events_output = _capture_cmd(events_cmd)
+    if events_output and events > 0:
+        events_output = "\n".join(events_output.splitlines()[-events:])
+    sections.append(("kubectl get events", events_output))
+
+    combined = "\n\n".join([f"[{title}]\n{body}" for title, body in sections])
+    if pager:
+        page_text(combined)
+    else:
+        typer.echo(combined)
+
+
+@debug_app.command(name="journal")
+def debug_journal(
+    ctx: typer.Context,
+    service: str = typer.Option("kubelet", "--service", "-s", help="Unidade systemd para inspecionar"),
+    lines: int = typer.Option(200, "--lines", "-n", help="Linhas a exibir"),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Segue o journal em tempo real"),
+    pager: bool = typer.Option(True, "--pager/--no-pager", help="Exibe com less"),
+) -> None:
+    """Mostra logs de services (ex.: kubelet) via journalctl."""
+
+    exec_ctx = ctx.obj or ExecutionContext()
+    ensure_tool("journalctl", exec_ctx)
+
+    cmd = ["journalctl", "-u", service, "-n", str(lines)]
+    if follow:
+        cmd.append("-f")
+        subprocess.run(cmd)
+        return
+
+    cmd.append("--no-pager")
+    output = _capture_cmd(cmd, timeout=60)
+    if lines > 0:
+        output = "\n".join(output.splitlines()[-lines:])
+
+    text = f"[journalctl -u {service} -n {lines}]\n{output}"
+    if pager:
+        page_text(text)
+    else:
+        typer.echo(text)
+
+
+# ============================================================================
 # Comandos Existentes
 # ============================================================================
 
@@ -554,8 +683,24 @@ def bootstrap_cmd(ctx: typer.Context) -> None:
 
 
 @app.command(name="full-install")
-def full_install_cmd(ctx: typer.Context) -> None:
+def full_install_cmd(
+    ctx: typer.Context,
+    steps: Optional[str] = typer.Option(None, "--steps", help="Lista de modulos, separado por virgula"),
+    confirm_each: bool = typer.Option(False, "--confirm-each", help="Pedir confirmacao antes de cada modulo"),
+    debug_mode: bool = typer.Option(False, "--debug-mode", help="Habilita snapshots e diagnose pos-modulo"),
+    snapshots: bool = typer.Option(False, "--snapshots", help="Habilita snapshots de cluster apos cada modulo"),
+    post_diagnose: bool = typer.Option(False, "--post-diagnose", help="Executa diagnose pos-modulo quando disponivel"),
+    select_steps: bool = typer.Option(False, "--select-steps", help="Pergunta quais modulos executar antes de iniciar"),
+) -> None:
     """Executa instalacao completa e automatizada do ambiente de producao."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    if steps:
+        exec_ctx.selected_steps = [s.strip() for s in steps.split(",") if s.strip()]
+    exec_ctx.interactive_steps = select_steps
+    exec_ctx.confirm_each_step = confirm_each
+    exec_ctx.debug_snapshots = debug_mode or snapshots or exec_ctx.debug_snapshots
+    exec_ctx.post_diagnose = debug_mode or post_diagnose or exec_ctx.post_diagnose
+    ctx.obj = exec_ctx
     _run_module(ctx, "full_install")
 
 

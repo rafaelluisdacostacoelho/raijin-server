@@ -28,52 +28,29 @@ CLI em Python (Typer) para automatizar setup e hardening de servidores Ubuntu Se
 
 ## Requisitos
 
-- Python >= 3.9
-- Ubuntu Server 20.04+ (testado em 24.04)
-- Permissões root/sudo
-- Conectividade com internet
-- Mínimo 4GB RAM, 20GB disco livre
-- Ferramentas: `curl`, `apt-get`, `systemctl`
+## Instalação (sempre em venv midgard)
 
-Ferramentas adicionais (instaladas pelos módulos quando necessário):
-- `helm` (>=3.8 para OCI)
-- `kubectl`, `kubeadm`
-- `velero`, `istioctl`
-
-## Instalacao
-
-Sem venv (global):
+Use apenas o venv `~/.venvs/midgard` para padronizar ambiente e logs.
 
 ```bash
-python -m pip install .
-```
-
-Com venv (recomendado para desenvolvimento):
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-```
-
-### Instalação em Produção (Recomendado)
-
-Para servidores em produção, use um venv isolado e execute com sudo preservando o ambiente:
-
-```bash
-# 1. Sair do venv atual (se estiver ativo)
-deactivate
-
-# 2. (Opcional) Remover venv antigo
-rm -rf ~/.venvs/raijin
-
-# 3. Criar venv novo
-python3 -m venv ~/.venvs/raijin
-source ~/.venvs/raijin/bin/activate
+# 1) Criar/reativar venv midgard
+python3 -m venv ~/.venvs/midgard
+source ~/.venvs/midgard/bin/activate
 pip install -U pip setuptools
 
-# 4. Instalar a versão mais recente
+# 2) Instalar a partir do source (dev)
 pip install -U raijin-server
+
+# 3) Uso com sudo preservando o venv
+sudo -E ~/.venvs/midgard/bin/raijin-server --version
+sudo -E ~/.venvs/midgard/bin/raijin-server validate
+sudo -E ~/.venvs/midgard/bin/raijin-server full-install
+
+# 4) Quando terminar
+deactivate
+```
+
+> Dica: se precisar reinstalar, remova o venv (`rm -rf ~/.venvs/midgard`), recrie e repita o passo 2. O `-E` no sudo mantém o venv ativo para o Python.
 
 # 5. Rodar usando root preservando o venv
 sudo -E ~/.venvs/raijin/bin/raijin-server --version
@@ -91,30 +68,70 @@ deactivate
 ### Validar Sistema
 ```bash
 # Verifica se o sistema atende pré-requisitos
-sudo raijin-server validate
+sudo -E ~/.venvs/midgard/bin/raijin-server validate
 ```
 
 ### Menu Interativo
 ```bash
-# Menu visual com stautils.py`: Funções utilitárias com retry, timeout e logging.
-- `src/raijin_server/validators.py`: Validações de pré-requisitos e dependências.
-- `src/raijin_server/healthchecks.py`: Health checks pós-instalação.
-- `src/raijin_server/config.py`: Gerenciamento de configuração via arquivo.
-- `src/raijin_server/modules/`: Automações por tópico (hardening, network, essentials, firewall, kubernetes, calico, istio, traefik, kong, minio, prometheus, grafana, loki, harness, velero, kafka).
-- `src/raijin_server/scripts/`: Shells empacotados usados pelos módulos e scripts auxiliares.
-- `ARCHITECTURE.md`: Visão do desenho técnico.
-- `AUDIT.md`: Relatório completo de auditoria e melhorias.
-- `SECURITY.md`: Como reportar vulnerabilidades
+# Menu visual com atalho para módulos
+sudo -E ~/.venvs/midgard/bin/raijin-server menu
+```
+
 ### Execução Direta de Módulos
 ```bash
 # Executar módulo específico
-sudo raijin-server kubernetes
+sudo -E ~/.venvs/midgard/bin/raijin-server kubernetes
 
 # Dry-run (simula sem aplicar)
-sudo raijin-server --dry-run kubernetes
+sudo -E ~/.venvs/midgard/bin/raijin-server --dry-run kubernetes
 
 # Pular validações (não recomendado)
-sudo raijin-server --skip-validation kubernetes
+sudo -E ~/.venvs/midgard/bin/raijin-server --skip-validation kubernetes
+```
+
+### Instalação Completa com seleção de passos
+```bash
+# Rodar tudo (padrão)
+sudo -E ~/.venvs/midgard/bin/raijin-server full-install
+
+# Escolher passos antes de rodar
+sudo -E ~/.venvs/midgard/bin/raijin-server full-install --select-steps
+
+# Definir lista fixa (ordem original preservada)
+sudo -E ~/.venvs/midgard/bin/raijin-server full-install --steps "kubernetes,calico,cert_manager,traefik"
+
+# Pedir confirmação a cada módulo
+sudo -E ~/.venvs/midgard/bin/raijin-server full-install --confirm-each
+
+# Modo debug: snapshots + diagnose pós-módulo
+sudo -E ~/.venvs/midgard/bin/raijin-server full-install --debug-mode
+
+# Apenas snapshots após cada módulo (pós-kubernetes)
+sudo -E ~/.venvs/midgard/bin/raijin-server full-install --snapshots
+
+# Apenas diagnose pós-módulo (ex.: cert-manager)
+sudo -E ~/.venvs/midgard/bin/raijin-server full-install --post-diagnose
+```
+
+### Depuração e Logs (pós-Kubernetes)
+```bash
+# Ver todos os logs do CLI com pager (less)
+sudo -E ~/.venvs/midgard/bin/raijin-server debug logs --lines 400
+
+# Seguir logs em tempo real
+sudo -E ~/.venvs/midgard/bin/raijin-server debug logs --follow
+
+# Snapshot do cluster: nodes, pods e eventos (últimos 200)
+sudo -E ~/.venvs/midgard/bin/raijin-server debug kube --events 200
+
+# Focar em um namespace (ex.: cert-manager)
+sudo -E ~/.venvs/midgard/bin/raijin-server debug kube --namespace cert-manager --events 150
+
+# Consultar logs do kubelet via journalctl
+sudo -E ~/.venvs/midgard/bin/raijin-server debug journal --service kubelet --lines 300
+
+# Consultar outro serviço systemd (ex.: containerd)
+sudo -E ~/.venvs/midgard/bin/raijin-server debug journal --service containerd --lines 200
 ```
 
 ### Automação via Arquivo de Configuração
@@ -128,41 +145,41 @@ sudo raijin-server --skip-validation kubernetes
 
 ```bash
 # 1. Validar sistema
-sudo raijin-server validate
+sudo -E ~/.venvs/midgard/bin/raijin-server validate
 
 # 2. Base do sistema
-sudo raijin-server essentials
-sudo raijin-server hardening
-sudo raijin-server network   # OPCIONAL: pule se IP já configurado via provedor ISP
-sudo raijin-server firewall
+sudo -E ~/.venvs/midgard/bin/raijin-server essentials
+sudo -E ~/.venvs/midgard/bin/raijin-server hardening
+sudo -E ~/.venvs/midgard/bin/raijin-server network   # OPCIONAL: pule se IP já configurado via provedor ISP
+sudo -E ~/.venvs/midgard/bin/raijin-server firewall
 
 # 3. Kubernetes
-sudo raijin-server kubernetes
-sudo raijin-server calico
-sudo raijin-server secrets
-sudo raijin-server cert-manager
+sudo -E ~/.venvs/midgard/bin/raijin-server kubernetes
+sudo -E ~/.venvs/midgard/bin/raijin-server calico
+sudo -E ~/.venvs/midgard/bin/raijin-server secrets
+sudo -E ~/.venvs/midgard/bin/raijin-server cert-manager
 
 # 4. Ingress (escolha um)
-sudo raijin-server traefik
+sudo -E ~/.venvs/midgard/bin/raijin-server traefik
 # OU
-sudo raijin-server kong
+sudo -E ~/.venvs/midgard/bin/raijin-server kong
 
 # 5. Observabilidade
-sudo raijin-server prometheus
-sudo raijin-server grafana
-sudo raijin-server observability-ingress
-sudo raijin-server observability-dashboards
-sudo raijin-server loki
+sudo -E ~/.venvs/midgard/bin/raijin-server prometheus
+sudo -E ~/.venvs/midgard/bin/raijin-server grafana
+sudo -E ~/.venvs/midgard/bin/raijin-server observability-ingress
+sudo -E ~/.venvs/midgard/bin/raijin-server observability-dashboards
+sudo -E ~/.venvs/midgard/bin/raijin-server loki
 
 # 6. Storage e Mensageria (opcional)
-sudo raijin-server minio
-sudo raijin-server kafka
+sudo -E ~/.venvs/midgard/bin/raijin-server minio
+sudo -E ~/.venvs/midgard/bin/raijin-server kafka
 
 # 7. Backup
-sudo raijin-server velero
+sudo -E ~/.venvs/midgard/bin/raijin-server velero
 
 # 8. Service Mesh (opcional)
-sudo raijin-server istio
+sudo -E ~/.venvs/midgard/bin/raijin-server istio
 ```
 
 ### IP Estático (pular se já configurado)
@@ -175,7 +192,7 @@ O módulo `network` é **opcional** quando:
 Para pular automaticamente em automações:
 ```bash
 export RAIJIN_SKIP_NETWORK=1
-sudo raijin-server full-install
+sudo -E ~/.venvs/midgard/bin/raijin-server full-install
 ```
 
 O módulo detecta automaticamente se já existe um Netplan com IP estático e pergunta
@@ -189,12 +206,12 @@ se deseja pular. Se executar manualmente, basta responder "não" quando pergunta
 ### Comandos Úteis
 ```bash
 # Versão (flag ou comando)
-raijin-server --version
-raijin-server -V
-raijin-server version
+~/.venvs/midgard/bin/raijin-server --version
+~/.venvs/midgard/bin/raijin-server -V
+~/.venvs/midgard/bin/raijin-server version
 
 # Monitorar logs
-tail -f /var/log/raijin-server/raijin-server.log
+sudo -E ~/.venvs/midgard/bin/raijin-server debug logs --follow
 
 # Rotacao de logs (default: 20MB, 5 backups)
 # Ajuste via env:
@@ -284,7 +301,7 @@ O helper garante o caminho absoluto correto independentemente de onde o pacote f
 O módulo [src/raijin_server/modules/apokolips_demo.py](src/raijin_server/modules/apokolips_demo.py) cria um namespace dedicado, ConfigMap com HTML, Deployment NGINX, Service e Ingress Traefik com uma landing page "Apokolips" para validar o tráfego externo.
 
 ```bash
-sudo raijin-server apokolips-demo
+sudo -E ~/.venvs/midgard/bin/raijin-server apokolips-demo
 ```
 
 Personalização rápida:
@@ -331,7 +348,7 @@ Isso permite manter o isolamento padrão enquanto libera acesso seletivo para in
 Execute o modulo `secrets` para instalar os controladores:
 
 ```bash
-sudo raijin-server secrets
+sudo -E ~/.venvs/midgard/bin/raijin-server secrets
 ```
 
 Passos realizados:

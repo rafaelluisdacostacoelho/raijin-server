@@ -18,6 +18,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Optional, List
 
+import os
+
 import typer
 
 from raijin_server.utils import (
@@ -34,11 +36,14 @@ CHART_REPO = "https://charts.jetstack.io"
 CHART_NAME = "cert-manager"
 NAMESPACE = "cert-manager"
 MANIFEST_PATH = Path("/tmp/raijin-cert-manager-issuer.yaml")
+HELM_DATA_DIR = Path("/tmp/raijin-helm")
+HELM_REPO_CONFIG = HELM_DATA_DIR / "repositories.yaml"
+HELM_REPO_CACHE = HELM_DATA_DIR / "cache"
 
-# Timeouts mais generosos para ambientes lentos
-WEBHOOK_READY_TIMEOUT = 600  # 10 minutos
-POD_READY_TIMEOUT = 300      # 5 minutos
-CRD_READY_TIMEOUT = 180      # 3 minutos
+# Timeouts enxutos (falha rápida em redes rápidas)
+WEBHOOK_READY_TIMEOUT = 240  # 4 minutos
+POD_READY_TIMEOUT = 180      # 3 minutos
+CRD_READY_TIMEOUT = 120      # 2 minutos
 
 
 class DNSProvider(str, Enum):
@@ -80,6 +85,17 @@ def _get_acme_server(staging: bool) -> str:
     if staging:
         return "https://acme-staging-v02.api.letsencrypt.org/directory"
     return "https://acme-v02.api.letsencrypt.org/directory"
+
+
+def _helm_env() -> dict:
+    """Garante diretórios de cache/config do Helm isolados em /tmp para evitar erros de permissão."""
+    HELM_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    HELM_REPO_CACHE.mkdir(parents=True, exist_ok=True)
+    return {
+        **os.environ,
+        "HELM_REPOSITORY_CONFIG": str(HELM_REPO_CONFIG),
+        "HELM_REPOSITORY_CACHE": str(HELM_REPO_CACHE),
+    }
 
 
 # =============================================================================
@@ -519,6 +535,7 @@ def _add_helm_repo(ctx: ExecutionContext) -> bool:
             capture_output=True,
             text=True,
             timeout=60,
+            env=_helm_env(),
         )
         
         if result.returncode != 0:
@@ -539,6 +556,7 @@ def _add_helm_repo(ctx: ExecutionContext) -> bool:
             capture_output=True,
             text=True,
             timeout=120,
+            env=_helm_env(),
         )
         
         elapsed_update = time.time() - start
@@ -562,8 +580,8 @@ def _add_helm_repo(ctx: ExecutionContext) -> bool:
         return False
 
 
-def _run_helm_install(ctx: ExecutionContext) -> bool:
-    """Executa o helm upgrade --install."""
+def _run_helm_install(ctx: ExecutionContext, attempt: int = 1) -> bool:
+    """Executa o helm upgrade --install, com uma tentativa de retry para repo/config."""
     if ctx.dry_run:
         typer.echo("  [4/5] [dry-run] Executando helm upgrade --install...")
         return True
@@ -574,6 +592,7 @@ def _run_helm_install(ctx: ExecutionContext) -> bool:
     
     cmd = [
         "helm", "upgrade", "--install", "cert-manager", "jetstack/cert-manager",
+        "--repo", CHART_REPO,
         "-n", NAMESPACE,
         "--create-namespace",
         "--set", "installCRDs=true",
@@ -598,6 +617,7 @@ def _run_helm_install(ctx: ExecutionContext) -> bool:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            env=_helm_env(),
         )
         
         output_lines = []
@@ -628,7 +648,13 @@ def _run_helm_install(ctx: ExecutionContext) -> bool:
             output = "".join(output_lines[-20:])  # Últimas 20 linhas
             logger.error(f"Helm install falhou (código {return_code}): {output}")
             typer.secho(f"  ✗ Helm install falhou (código {return_code})", fg=typer.colors.RED)
-            
+
+            needs_repo_retry = "repo jetstack not found" in output.lower() or "repositories.yaml" in output.lower()
+            if needs_repo_retry and attempt == 1:
+                typer.echo("  → Reconfigurando repositório Helm e tentando novamente...")
+                if _add_helm_repo(ctx):
+                    return _run_helm_install(ctx, attempt=2)
+
             # Mostra as últimas linhas do erro
             typer.echo("\n  Últimas linhas do log:")
             for line in output_lines[-10:]:

@@ -1,7 +1,8 @@
 """Configuracao de Calico como CNI com CIDR customizado e policies opinativas."""
 
+import json
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, List
 
 import typer
 
@@ -16,11 +17,29 @@ from raijin_server.utils import (
 
 EGRESS_LABEL_KEY = "networking.raijin.dev/egress"
 EGRESS_LABEL_VALUE = "internet"
+DEFAULT_WORKLOAD_NAMESPACE = "apps"
 
 
 def _apply_policy(content: str, ctx: ExecutionContext, suffix: str) -> None:
     path = Path(f"/tmp/raijin-{suffix}.yaml")
     write_file(path, content, ctx)
+    kubectl_apply(str(path), ctx)
+    path.unlink(missing_ok=True)
+
+
+def _ensure_namespace(namespace: str, ctx: ExecutionContext) -> None:
+    """Garante que um namespace de workloads exista com labels padrao."""
+    manifest = f"""apiVersion: v1
+kind: Namespace
+metadata:
+  name: {namespace}
+  labels:
+    raijin/workload-profile: production
+    networking.raijin.dev/default-egress: restricted
+"""
+
+    path = Path(f"/tmp/raijin-ns-{namespace}.yaml")
+    write_file(path, manifest, ctx)
     kubectl_apply(str(path), ctx)
     path.unlink(missing_ok=True)
 
@@ -62,6 +81,43 @@ def _split_namespaces(raw_value: str) -> Iterable[str]:
     return [ns.strip() for ns in raw_value.split(",") if ns.strip()]
 
 
+def _list_workloads_without_egress(namespaces: List[str], ctx: ExecutionContext) -> None:
+    """Lista workloads sem label de egress e apenas avisa se falhar."""
+    if ctx.dry_run:
+        typer.echo("[dry-run] Skip listagem de workloads para liberação de egress")
+        return
+
+    typer.secho("\nWorkloads sem liberação de egress (adicione label para liberar internet):", fg=typer.colors.CYAN)
+    for ns in namespaces:
+        result = run_cmd(
+            ["kubectl", "get", "deploy,statefulset,daemonset", "-n", ns, "-o", "json"],
+            ctx,
+            check=False,
+        )
+        if result.returncode != 0:
+            msg = (result.stderr or result.stdout or "erro desconhecido").strip()
+            typer.secho(f"  Aviso: nao foi possivel listar workloads em '{ns}' ({msg})", fg=typer.colors.YELLOW)
+            continue
+
+        try:
+            data = json.loads(result.stdout or "{}")
+            items = data.get("items", [])
+            pending = []
+            for item in items:
+                meta = item.get("metadata", {})
+                labels = meta.get("labels", {}) or {}
+                if labels.get(EGRESS_LABEL_KEY) != EGRESS_LABEL_VALUE:
+                    pending.append(f"{meta.get('namespace', ns)}/{meta.get('name', 'desconhecido')}")
+
+            if pending:
+                for name in pending:
+                    typer.echo(f"  - {name}")
+            else:
+                typer.echo(f"  Nenhum workload pendente em '{ns}'")
+        except Exception as exc:
+            typer.secho(f"  Aviso: falha ao processar workloads em '{ns}': {exc}", fg=typer.colors.YELLOW)
+
+
 def _check_cluster_available(ctx: ExecutionContext) -> bool:
     """Verifica se o cluster Kubernetes esta acessivel."""
     if ctx.dry_run:
@@ -99,13 +155,19 @@ def run(ctx: ExecutionContext) -> None:
     typer.echo("Aplicando Calico como CNI...")
     pod_cidr = typer.prompt("Pod CIDR (Calico)", default="10.244.0.0/16")
 
+    typer.secho(
+        f"Criando namespace padrao de workloads '{DEFAULT_WORKLOAD_NAMESPACE}' (production-ready)...",
+        fg=typer.colors.CYAN,
+    )
+    _ensure_namespace(DEFAULT_WORKLOAD_NAMESPACE, ctx)
+
     manifest_url = "https://raw.githubusercontent.com/projectcalico/calico/v3.27.2/manifests/calico.yaml"
     cmd = f"curl -s {manifest_url} | sed 's#192.168.0.0/16#{pod_cidr}#' | kubectl apply -f -"
     run_cmd(cmd, ctx, use_shell=True)
 
     deny_namespaces_raw = typer.prompt(
         "Namespaces para aplicar default-deny (CSV)",
-        default="default",
+        default=DEFAULT_WORKLOAD_NAMESPACE,
     )
     for namespace in _split_namespaces(deny_namespaces_raw):
         typer.echo(f"Aplicando default-deny no namespace '{namespace}'...")
@@ -117,9 +179,12 @@ def run(ctx: ExecutionContext) -> None:
     ):
         allow_namespaces_raw = typer.prompt(
             "Namespaces com pods que precisam acessar APIs externas (CSV)",
-            default="default",
+            default=DEFAULT_WORKLOAD_NAMESPACE,
         )
         cidr = typer.prompt("CIDR liberado (ex.: 0.0.0.0/0)", default="0.0.0.0/0")
+        namespaces = list(_split_namespaces(allow_namespaces_raw))
+        if namespaces:
+            _list_workloads_without_egress(namespaces, ctx)
         for namespace in _split_namespaces(allow_namespaces_raw):
             typer.echo(
                 f"Criando policy allow-egress-internet em '{namespace}' para pods com "

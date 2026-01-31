@@ -38,7 +38,7 @@ echo "Escolha o tipo de instalação:"
 echo "  1) Global (requer sudo, todos os usuários)"
 echo "  2) Virtual env (recomendado para desenvolvimento)"
 echo "  3) User install (apenas usuário atual)"
-read -p "Opção [2]: " INSTALL_TYPE
+read -r -p "Opção [2]: " INSTALL_TYPE
 INSTALL_TYPE=${INSTALL_TYPE:-2}
 
 echo ""
@@ -51,6 +51,7 @@ case $INSTALL_TYPE in
     2)
         echo -e "${YELLOW}Criando virtual environment...${NC}"
         python3 -m venv .venv
+        # shellcheck disable=SC1091
         source .venv/bin/activate
         pip install --upgrade pip
         pip install -e .
@@ -73,7 +74,7 @@ EOF
         
         # Adicionar ao PATH se necessário
         if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+            echo "export PATH=\"$HOME/.local/bin:$PATH\"" >> ~/.bashrc
             echo -e "${YELLOW}⚠${NC} Adicionado $HOME/.local/bin ao PATH"
             echo "Execute: source ~/.bashrc"
         fi
