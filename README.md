@@ -155,6 +155,7 @@ sudo -E ~/.venvs/midgard/bin/raijin-server debug journal --service containerd --
 - **Publicação PyPI**: ver seção "Publicar no PyPI" abaixo
 - **CNI automático**: Calico aplicado automaticamente no passo Kubernetes (override com `RAIJIN_CNI=none`)
 	- Para reaplicar CNI (forçar mesmo se já houver): `RAIJIN_FORCE_CNI=1`
+- **LoadBalancer bare metal**: módulo `metallb` aplica pool L2 para Services `LoadBalancer`
 
 ## Fluxo de Execução Recomendado
 
@@ -171,6 +172,7 @@ sudo -E ~/.venvs/midgard/bin/raijin-server firewall
 # 3. Kubernetes
 sudo -E ~/.venvs/midgard/bin/raijin-server kubernetes
 sudo -E ~/.venvs/midgard/bin/raijin-server calico
+sudo -E ~/.venvs/midgard/bin/raijin-server metallb  # se ambiente bare metal e quiser Service LoadBalancer
 sudo -E ~/.venvs/midgard/bin/raijin-server secrets
 sudo -E ~/.venvs/midgard/bin/raijin-server cert-manager
 

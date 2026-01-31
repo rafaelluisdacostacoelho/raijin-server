@@ -1053,16 +1053,16 @@ def _get_cert_manager_status(ctx: ExecutionContext) -> dict:
         result = subprocess.run(
             [
                 "kubectl", "get", "pods", "-n", NAMESPACE,
-                "-o", "jsonpath={range .items[*]}{.metadata.name}:{.status.phase}\\n{end}"
+                "-o", "jsonpath={range .items[*]}{.metadata.name}={.status.phase} {end}"
             ],
             capture_output=True,
             text=True,
             timeout=10,
         )
         if result.returncode == 0:
-            for line in result.stdout.strip().split("\n"):
-                if ":" in line:
-                    name, phase = line.split(":", 1)
+            for item in result.stdout.strip().split():
+                if "=" in item:
+                    name, phase = item.rsplit("=", 1)
                     status["pods"].append({"name": name, "phase": phase})
         
         status["webhook_ready"] = _test_webhook_connectivity()
@@ -1082,16 +1082,16 @@ def _get_cert_manager_status(ctx: ExecutionContext) -> dict:
         result = subprocess.run(
             [
                 "kubectl", "get", "certificates", "-A",
-                "-o", "jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name}:{.status.conditions[0].status}\\n{end}"
+                "-o", "jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[0].status} {end}"
             ],
             capture_output=True,
             text=True,
             timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():
-            for line in result.stdout.strip().split("\n"):
-                if ":" in line:
-                    name, ready = line.split(":", 1)
+            for item in result.stdout.strip().split():
+                if "=" in item:
+                    name, ready = item.rsplit("=", 1)
                     status["certificates"].append({"name": name, "ready": ready})
     
     except Exception as e:

@@ -32,6 +32,7 @@ from raijin_server.modules import (
     kong,
     kubernetes,
     loki,
+    metallb,
     minio,
     network,
     observability_dashboards,
@@ -85,6 +86,7 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "vpn": vpn.run,
     "kubernetes": kubernetes.run,
     "calico": calico.run,
+    "metallb": metallb.run,
     "traefik": traefik.run,  # mover antes do cert_manager para refletir dependencia
     "cert_manager": cert_manager.run,
     "istio": istio.run,
@@ -119,6 +121,7 @@ MODULE_DESCRIPTIONS: Dict[str, str] = {
     "vpn": "Provisiona WireGuard com cliente inicial",
     "kubernetes": "Instala kubeadm/kubelet/kubectl e inicializa cluster",
     "calico": "CNI Calico e politica default deny",
+    "metallb": "LoadBalancer em bare metal (pool L2)",
     "cert_manager": "Instala cert-manager e ClusterIssuer ACME",
     "istio": "Service mesh Istio via Helm",
     "traefik": "Ingress controller Traefik com TLS",

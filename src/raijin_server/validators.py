@@ -19,6 +19,7 @@ from raijin_server.utils import ExecutionContext, logger
 MODULE_DEPENDENCIES = {
     "kubernetes": ["essentials", "network", "firewall"],
     "calico": ["kubernetes"],
+    "metallb": ["kubernetes"],
     "cert_manager": ["kubernetes", "traefik"],
     "istio": ["kubernetes", "calico"],
     "traefik": ["kubernetes"],
