@@ -147,6 +147,9 @@ metadata:
   namespace: istio-system
 spec:
   profile: {profile}
+  meshConfig:
+    defaultConfig:
+      holdApplicationUntilProxyStarts: true
   components:
     pilot:
       enabled: true
@@ -175,10 +178,6 @@ spec:
             kubernetes.io/hostname: {node_name}
           service:
             type: {service_type}
-  values:
-    global:
-      proxy:
-        holdApplicationUntilProxyStarts: true
 """
 
     config_path = Path("/tmp/raijin-istio-config.yaml")

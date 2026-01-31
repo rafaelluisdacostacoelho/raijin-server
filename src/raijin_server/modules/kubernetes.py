@@ -269,7 +269,7 @@ scheduler: {{}}
 ---
 apiVersion: kubeproxy.config.k8s.io/v1alpha1
 kind: KubeProxyConfiguration
-mode: ipvs
+mode: iptables
 ---
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
@@ -331,3 +331,34 @@ cgroupDriver: systemd
         "--all",
         "--timeout=180s",
     ], ctx, check=False)
+
+    # Em clusters single-node, perguntar se deve remover taint do control-plane
+    # para permitir que workloads rodem no mesmo node
+    typer.secho("\n📌 Configuração de Single-Node Cluster", fg=typer.colors.CYAN, bold=True)
+    typer.echo("Se este for um cluster single-node (apenas este servidor),")
+    typer.echo("é necessário remover o taint do control-plane para permitir workloads.")
+    
+    remove_taint = typer.confirm(
+        "Remover taint do control-plane (necessário para single-node)?",
+        default=True,
+    )
+    
+    if remove_taint:
+        typer.echo("Removendo taint node-role.kubernetes.io/control-plane...")
+        run_cmd(
+            ["kubectl", "taint", "nodes", "--all", "node-role.kubernetes.io/control-plane-", "--overwrite"],
+            ctx,
+            check=False,
+        )
+        typer.secho("✓ Taint removido. Workloads podem rodar neste node.", fg=typer.colors.GREEN)
+    else:
+        typer.secho(
+            "⚠ Taint mantido. Workloads precisarão de tolerations ou worker nodes.",
+            fg=typer.colors.YELLOW,
+        )
+
+    typer.secho("\n✓ Kubernetes instalado com sucesso!", fg=typer.colors.GREEN, bold=True)
+    typer.echo("\nPróximos passos:")
+    typer.echo("  raijin-server install metallb     # LoadBalancer para bare-metal")
+    typer.echo("  raijin-server install traefik     # Ingress Controller")
+    typer.echo("  raijin-server install cert-manager # Certificados TLS automáticos")
