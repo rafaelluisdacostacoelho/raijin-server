@@ -2,6 +2,7 @@
 ==========================================
 
 Data: 27 de Janeiro de 2026
+Última Atualização: Auditoria de Módulos Kubernetes
 Status: ✅ APROVADO PARA PRODUÇÃO
 
 ==========================================
@@ -11,6 +12,31 @@ RESUMO EXECUTIVO
 A arquitetura do CLI raijin-server foi completamente auditada e 
 reestruturada para garantir resiliência, segurança e confiabilidade
 em ambientes de produção Ubuntu Server 24.
+
+==========================================
+MÓDULOS KUBERNETES - PRODUCTION-READY
+==========================================
+
+Todos os módulos abaixo foram auditados e atualizados com:
+- Tolerations para nodes control-plane (clusters single-node)
+- NodeSelector detectado automaticamente
+- Cleanup prompt (y/N, default N) antes de reinstalar
+- Wait for pods Ready com timeout
+- Configurações interativas de produção
+
+✅ metallb.py       - LoadBalancer para bare-metal
+✅ traefik.py       - Ingress controller
+✅ cert_manager.py  - Certificados TLS automáticos
+✅ istio.py         - Service mesh
+✅ kong.py          - API Gateway
+✅ minio.py         - Object storage S3-compatible
+✅ grafana.py       - Dashboards e visualização
+✅ prometheus.py    - Métricas e alertas
+✅ loki.py          - Agregação de logs
+✅ kafka.py         - Message broker
+✅ velero.py        - Backup e restore
+✅ secrets.py       - Sealed-secrets + External-secrets
+✅ harness.py       - CI/CD Delegate
 
 ==========================================
 ARQUIVOS CRIADOS

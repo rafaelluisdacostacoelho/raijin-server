@@ -591,7 +591,7 @@ def _run_helm_install(ctx: ExecutionContext, attempt: int = 1) -> bool:
     typer.echo("        (isso pode levar vários minutos)")
     
     cmd = [
-        "helm", "upgrade", "--install", "cert-manager", "jetstack/cert-manager",
+        "helm", "upgrade", "--install", "cert-manager", "cert-manager",
         "--repo", CHART_REPO,
         "-n", NAMESPACE,
         "--create-namespace",
@@ -601,6 +601,31 @@ def _run_helm_install(ctx: ExecutionContext, attempt: int = 1) -> bool:
         "--set", "startupapicheck.enabled=true",
         "--set", "webhook.replicaCount=1",
         "--set", "cainjector.replicaCount=1",
+        # Tolerations para control-plane (single-node clusters)
+        "--set", "tolerations[0].key=node-role.kubernetes.io/control-plane",
+        "--set", "tolerations[0].operator=Exists",
+        "--set", "tolerations[0].effect=NoSchedule",
+        "--set", "tolerations[1].key=node-role.kubernetes.io/master",
+        "--set", "tolerations[1].operator=Exists",
+        "--set", "tolerations[1].effect=NoSchedule",
+        "--set", "webhook.tolerations[0].key=node-role.kubernetes.io/control-plane",
+        "--set", "webhook.tolerations[0].operator=Exists",
+        "--set", "webhook.tolerations[0].effect=NoSchedule",
+        "--set", "webhook.tolerations[1].key=node-role.kubernetes.io/master",
+        "--set", "webhook.tolerations[1].operator=Exists",
+        "--set", "webhook.tolerations[1].effect=NoSchedule",
+        "--set", "cainjector.tolerations[0].key=node-role.kubernetes.io/control-plane",
+        "--set", "cainjector.tolerations[0].operator=Exists",
+        "--set", "cainjector.tolerations[0].effect=NoSchedule",
+        "--set", "cainjector.tolerations[1].key=node-role.kubernetes.io/master",
+        "--set", "cainjector.tolerations[1].operator=Exists",
+        "--set", "cainjector.tolerations[1].effect=NoSchedule",
+        "--set", "startupapicheck.tolerations[0].key=node-role.kubernetes.io/control-plane",
+        "--set", "startupapicheck.tolerations[0].operator=Exists",
+        "--set", "startupapicheck.tolerations[0].effect=NoSchedule",
+        "--set", "startupapicheck.tolerations[1].key=node-role.kubernetes.io/master",
+        "--set", "startupapicheck.tolerations[1].operator=Exists",
+        "--set", "startupapicheck.tolerations[1].effect=NoSchedule",
         "--wait",
         "--timeout", "15m",
         "--debug",  # Mais logs
@@ -1234,6 +1259,55 @@ def _diagnose_problems(ctx: ExecutionContext) -> None:
         typer.secho("\n  Nenhum problema óbvio detectado", fg=typer.colors.GREEN)
 
 
+def _check_existing_cert_manager() -> bool:
+    """Verifica se existe instalacao do cert-manager."""
+    try:
+        result = subprocess.run(
+            ["helm", "status", "cert-manager", "-n", NAMESPACE],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env=_helm_env(),
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _uninstall_cert_manager(ctx: ExecutionContext) -> None:
+    """Remove instalacao anterior do cert-manager."""
+    typer.echo("Removendo instalacao anterior do cert-manager...")
+    
+    run_cmd(
+        ["helm", "uninstall", "cert-manager", "-n", NAMESPACE],
+        ctx,
+        check=False,
+    )
+    
+    # Remove CRDs
+    run_cmd(
+        ["kubectl", "delete", "crd",
+         "certificaterequests.cert-manager.io",
+         "certificates.cert-manager.io",
+         "challenges.acme.cert-manager.io",
+         "clusterissuers.cert-manager.io",
+         "issuers.cert-manager.io",
+         "orders.acme.cert-manager.io",
+         "--ignore-not-found"],
+        ctx,
+        check=False,
+    )
+    
+    # Remove namespace
+    run_cmd(
+        ["kubectl", "delete", "namespace", NAMESPACE, "--ignore-not-found"],
+        ctx,
+        check=False,
+    )
+    
+    time.sleep(5)
+
+
 # =============================================================================
 # Entry Points
 # =============================================================================
@@ -1252,6 +1326,15 @@ def run(ctx: ExecutionContext) -> None:
         )
         ctx.errors.append("cert-manager: cluster não acessível")
         raise typer.Exit(code=1)
+
+    # Prompt opcional de limpeza
+    if _check_existing_cert_manager():
+        cleanup = typer.confirm(
+            "Instalacao anterior do cert-manager detectada. Limpar antes de reinstalar?",
+            default=False,
+        )
+        if cleanup:
+            _uninstall_cert_manager(ctx)
 
     # Mostra status atual
     status = _get_cert_manager_status(ctx)
