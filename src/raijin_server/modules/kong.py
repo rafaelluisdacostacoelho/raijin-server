@@ -52,7 +52,7 @@ def _check_existing_kong(ctx: ExecutionContext) -> bool:
 
 
 def _check_orphan_crds(ctx: ExecutionContext) -> list[str]:
-    """Detecta CRDs orfaos do Kong (sem ownership do Helm)."""
+    """Detecta CRDs do Kong que existem sem ownership do Helm."""
     result = run_cmd(
         ["kubectl", "get", "crd", "-o", "name"],
         ctx,
@@ -72,23 +72,75 @@ def _check_orphan_crds(ctx: ExecutionContext) -> list[str]:
     return kong_crds
 
 
-def _cleanup_orphan_crds(ctx: ExecutionContext, crds: list[str]) -> None:
-    """Remove CRDs orfaos do Kong."""
-    typer.echo(f"Removendo {len(crds)} CRDs orfaos do Kong...")
+def _adopt_crds_for_helm(ctx: ExecutionContext, crds: list[str]) -> bool:
+    """Adiciona labels do Helm aos CRDs existentes para permitir adocao."""
+    typer.echo(f"Adicionando labels Helm a {len(crds)} CRDs existentes...")
     
     for crd in crds:
+        # Adiciona label managed-by
         run_cmd(
-            ["kubectl", "delete", "crd", crd, "--ignore-not-found"],
+            ["kubectl", "label", "crd", crd, "app.kubernetes.io/managed-by=Helm", "--overwrite"],
+            ctx,
+            check=False,
+        )
+        # Adiciona annotations de release
+        run_cmd(
+            ["kubectl", "annotate", "crd", crd, "meta.helm.sh/release-name=kong", "--overwrite"],
+            ctx,
+            check=False,
+        )
+        run_cmd(
+            ["kubectl", "annotate", "crd", crd, "meta.helm.sh/release-namespace=kong", "--overwrite"],
             ctx,
             check=False,
         )
     
-    time.sleep(3)
-    typer.secho("  CRDs orfaos removidos.", fg=typer.colors.GREEN)
+    typer.secho("  ✓ CRDs preparados para adocao pelo Helm.", fg=typer.colors.GREEN)
+    return True
+
+
+def _cleanup_orphan_crds(ctx: ExecutionContext, crds: list[str]) -> bool:
+    """Remove CRDs do Kong completamente."""
+    typer.echo(f"Removendo {len(crds)} CRDs do Kong...")
+    
+    for crd in crds:
+        run_cmd(
+            ["kubectl", "delete", "crd", crd, "--ignore-not-found", "--wait=true"],
+            ctx,
+            check=False,
+        )
+    
+    # Aguarda e verifica se foram realmente removidos
+    typer.echo("  Aguardando remocao completa dos CRDs...")
+    max_attempts = 10
+    for attempt in range(max_attempts):
+        time.sleep(2)
+        remaining = _check_orphan_crds(ctx)
+        if not remaining:
+            typer.secho("  ✓ CRDs removidos com sucesso.", fg=typer.colors.GREEN)
+            return True
+        
+        if attempt < max_attempts - 1:
+            typer.echo(f"  Ainda restam {len(remaining)} CRDs. Tentando remover novamente...")
+            for crd in remaining:
+                run_cmd(
+                    ["kubectl", "delete", "crd", crd, "--ignore-not-found", "--wait=true", "--timeout=30s"],
+                    ctx,
+                    check=False,
+                )
+    
+    remaining = _check_orphan_crds(ctx)
+    if remaining:
+        typer.secho(f"  ⚠️  {len(remaining)} CRDs ainda existem:", fg=typer.colors.YELLOW)
+        for crd in remaining[:5]:
+            typer.echo(f"      - {crd}")
+        return False
+    
+    return True
 
 
 def _uninstall_kong(ctx: ExecutionContext) -> None:
-    """Remove instalacao anterior do Kong."""
+    """Remove instalacao anterior do Kong completamente, incluindo CRDs."""
     typer.echo("Removendo instalacao anterior do Kong...")
     
     run_cmd(
@@ -98,12 +150,28 @@ def _uninstall_kong(ctx: ExecutionContext) -> None:
     )
     
     run_cmd(
-        ["kubectl", "delete", "namespace", "kong", "--ignore-not-found"],
+        ["kubectl", "delete", "namespace", "kong", "--ignore-not-found", "--wait=false"],
         ctx,
         check=False,
     )
     
-    time.sleep(5)
+    # Remove CRDs do Kong diretamente (mais confiável)
+    typer.echo("Removendo CRDs do Kong...")
+    run_cmd(
+        ["sh", "-c", "kubectl get crd -o name | grep konghq.com | xargs -r kubectl delete --ignore-not-found"],
+        ctx,
+        check=False,
+    )
+    
+    # Aguarda namespace terminar de deletar
+    typer.echo("Aguardando limpeza completa...")
+    run_cmd(
+        ["kubectl", "wait", "--for=delete", "namespace/kong", "--timeout=60s"],
+        ctx,
+        check=False,
+    )
+    
+    time.sleep(3)
 
 
 def _wait_for_kong_ready(ctx: ExecutionContext, timeout: int = 180) -> bool:
@@ -158,29 +226,42 @@ def run(ctx: ExecutionContext) -> None:
         if cleanup:
             _uninstall_kong(ctx)
     
-    # Verificar CRDs orfaos (sem ownership do Helm)
-    orphan_crds = _check_orphan_crds(ctx)
-    if orphan_crds:
+    # Verificar CRDs existentes do Kong (sem ownership do Helm)
+    existing_crds = _check_orphan_crds(ctx)
+    skip_crds = False
+    
+    if existing_crds:
         typer.secho(
-            f"\n⚠️  Detectados {len(orphan_crds)} CRDs orfaos do Kong (sem ownership do Helm):",
+            f"\n⚠️  Detectados {len(existing_crds)} CRDs do Kong sem labels do Helm:",
             fg=typer.colors.YELLOW,
         )
-        for crd in orphan_crds[:5]:
+        for crd in existing_crds[:5]:
             typer.echo(f"    - {crd}")
-        if len(orphan_crds) > 5:
-            typer.echo(f"    ... e mais {len(orphan_crds) - 5}")
+        if len(existing_crds) > 5:
+            typer.echo(f"    ... e mais {len(existing_crds) - 5}")
         
-        cleanup_crds = typer.confirm(
-            "\nRemover CRDs orfaos para permitir instalacao limpa?",
-            default=True,
-        )
-        if cleanup_crds:
-            _cleanup_orphan_crds(ctx, orphan_crds)
+        typer.echo("\nOpcoes:")
+        typer.echo("  1. Adotar CRDs existentes (adicionar labels Helm) - RECOMENDADO")
+        typer.echo("  2. Deletar CRDs e deixar Helm recriar")
+        typer.echo("  3. Ignorar CRDs (usar --skip-crds)")
+        typer.echo("  4. Cancelar instalacao")
+        
+        choice = typer.prompt("Escolha", default="1")
+        
+        if choice == "1":
+            _adopt_crds_for_helm(ctx, existing_crds)
+        elif choice == "2":
+            cleanup_success = _cleanup_orphan_crds(ctx, existing_crds)
+            if not cleanup_success:
+                if not typer.confirm("CRDs ainda existem. Continuar mesmo assim?", default=False):
+                    typer.secho("Instalacao cancelada.", fg=typer.colors.RED)
+                    return
+        elif choice == "3":
+            skip_crds = True
+            typer.secho("Helm não gerenciará os CRDs existentes.", fg=typer.colors.YELLOW)
         else:
-            typer.secho(
-                "AVISO: A instalacao pode falhar devido aos CRDs orfaos.",
-                fg=typer.colors.YELLOW,
-            )
+            typer.secho("Instalacao cancelada.", fg=typer.colors.RED)
+            return
 
     # Detectar dependencias
     has_metallb = _check_metallb_installed(ctx)
@@ -203,15 +284,19 @@ def run(ctx: ExecutionContext) -> None:
     enable_admin = typer.confirm("Habilitar Admin API (para gerenciamento)?", default=True)
     enable_metrics = typer.confirm("Habilitar métricas Prometheus?", default=True)
     db_mode = typer.prompt(
-        "Modo de banco de dados (dbless/postgres)",
-        default="dbless",
+        "Modo de banco de dados (off/postgres)",
+        default="off",
     )
+    
+    # Normaliza valores antigos
+    if db_mode == "dbless":
+        db_mode = "off"
     
     node_name = _detect_node_name(ctx)
 
-    # Usar arquivo YAML para configurações complexas (mais confiável que --set)
+    # Configurações base do values.yaml
     values_yaml = f"""env:
-  database: {db_mode}
+  database: "{db_mode}"
 
 ingressController:
   installCRDs: true
@@ -254,6 +339,18 @@ resources:
     memory: 1Gi
 """
 
+    # Configurações específicas para modo off/dbless (desabilita PostgreSQL e migrations)
+    if db_mode == "off":
+        values_yaml += """
+# Modo dbless (off) - sem banco de dados
+postgresql:
+  enabled: false
+
+migrations:
+  preUpgrade: false
+  postUpgrade: false
+"""
+
     # Adicionar métricas se habilitado
     if enable_metrics:
         values_yaml += """
@@ -273,6 +370,11 @@ podAnnotations:
 
     run_cmd(["kubectl", "create", "namespace", "kong"], ctx, check=False)
     
+    # Monta args extras para o helm
+    extra_args = ["-f", str(values_path)]
+    if skip_crds:
+        extra_args.append("--skip-crds")
+    
     helm_upgrade_install(
         release="kong",
         chart="kong",
@@ -281,7 +383,7 @@ podAnnotations:
         repo_url="https://charts.konghq.com",
         ctx=ctx,
         values=[],
-        extra_args=["-f", str(values_path)],
+        extra_args=extra_args,
     )
     
     # Aguarda pods ficarem prontos

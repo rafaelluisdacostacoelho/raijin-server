@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional
 
 import subprocess
 
@@ -49,6 +49,7 @@ from raijin_server.utils import ExecutionContext, logger, active_log_file, avail
 from raijin_server.validators import validate_system_requirements, check_module_dependencies, MODULE_DEPENDENCIES
 from raijin_server.healthchecks import run_health_check
 from raijin_server.config import ConfigManager
+from raijin_server import module_manager
 
 app = typer.Typer(add_completion=False, help="Automacao de setup e hardening para Ubuntu Server")
 console = Console()
@@ -836,6 +837,257 @@ def validate(skip_root: bool = typer.Option(False, "--skip-root", help="Pula val
     else:
         typer.secho("\n✗ Sistema nao atende pre-requisitos", fg=typer.colors.RED, bold=True)
         raise typer.Exit(code=1)
+
+
+# ============================================================================
+# Comandos Install / Uninstall / List
+# ============================================================================
+
+def _get_available_modules() -> List[str]:
+    """Retorna lista de modulos disponiveis (excluindo full_install)."""
+    return [m for m in MODULES.keys() if m != "full_install"]
+
+
+def _register_uninstall_handlers() -> None:
+    """Registra handlers de uninstall dos modulos que os possuem."""
+    # Mapeamento de modulos para suas funcoes de uninstall
+    handlers = {
+        "kong": kong._uninstall_kong,
+        "grafana": grafana._uninstall_grafana,
+        "velero": velero._uninstall_velero,
+        "metallb": metallb._uninstall_metallb,
+        "minio": minio._uninstall_minio,
+        "loki": loki._uninstall_loki,
+        "prometheus": lambda ctx: prometheus._uninstall_prometheus(ctx, "monitoring"),
+        "traefik": traefik._uninstall_traefik,
+        "istio": istio._uninstall_istio,
+        "kafka": kafka._uninstall_kafka,
+        "cert_manager": cert_manager._uninstall_cert_manager,
+        "calico": lambda ctx: _generic_uninstall(ctx, "calico", "calico-system", ["calico"]),
+        "secrets": lambda ctx: _uninstall_secrets(ctx),
+        "harness": lambda ctx: harness._uninstall_delegate(ctx, "harness", "harness-delegate"),
+    }
+    
+    module_manager.UNINSTALL_HANDLERS.update(handlers)
+
+
+def _uninstall_secrets(ctx: ExecutionContext) -> None:
+    """Handler de uninstall para secrets (sealed-secrets + external-secrets)."""
+    secrets._uninstall_sealed_secrets(ctx, "sealed-secrets")
+    secrets._uninstall_external_secrets(ctx, "external-secrets")
+
+
+def _generic_uninstall(ctx: ExecutionContext, module: str, namespace: str, releases: List[str]) -> None:
+    """Handler generico de uninstall para modulos Helm."""
+    for release in releases:
+        module_manager.generic_helm_uninstall(release, namespace, ctx)
+    module_manager.cleanup_namespace(namespace, ctx)
+
+
+@app.command()
+def install(
+    ctx: typer.Context,
+    module: str = typer.Argument(..., help="Nome do modulo a instalar"),
+    force: bool = typer.Option(False, "--force", "-f", help="Ignora dependencias faltantes"),
+) -> None:
+    """Instala um modulo especifico.
+    
+    Exemplo:
+        raijin-server install kong
+        raijin-server install prometheus --force
+    """
+    available = _get_available_modules()
+    
+    # Normaliza nome do modulo (aceita hifens)
+    module_normalized = module.replace("-", "_")
+    
+    if module_normalized not in available:
+        typer.secho(f"Modulo '{module}' nao encontrado.", fg=typer.colors.RED)
+        typer.echo(f"\nModulos disponiveis:")
+        for m in sorted(available):
+            typer.echo(f"  - {m}")
+        raise typer.Exit(code=1)
+    
+    exec_ctx = ctx.obj or ExecutionContext()
+    
+    # Verifica dependencias
+    if not force:
+        if not check_module_dependencies(module_normalized, exec_ctx):
+            typer.echo("\nUse --force para ignorar dependencias faltantes.")
+            raise typer.Exit(code=1)
+    
+    # Mostra dependencias
+    module_manager.show_dependency_tree(module_normalized)
+    
+    # Confirma instalacao
+    if not typer.confirm(f"\nInstalar modulo '{module_normalized}'?", default=True):
+        typer.secho("Instalacao cancelada.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=0)
+    
+    # Executa instalacao
+    _run_module(ctx, module_normalized)
+
+
+@app.command()
+def uninstall(
+    ctx: typer.Context,
+    module: str = typer.Argument(..., help="Nome do modulo a desinstalar"),
+    force: bool = typer.Option(False, "--force", "-f", help="Ignora avisos de seguranca"),
+    cascade: bool = typer.Option(False, "--cascade", help="Remove tambem modulos dependentes"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirma automaticamente"),
+) -> None:
+    """Desinstala um modulo e seus recursos.
+    
+    Analisa dependencias e mostra impacto antes de remover.
+    
+    Exemplo:
+        raijin-server uninstall kong
+        raijin-server uninstall kubernetes --cascade
+        raijin-server uninstall prometheus --force -y
+    """
+    available = _get_available_modules()
+    
+    # Normaliza nome do modulo
+    module_normalized = module.replace("-", "_")
+    
+    if module_normalized not in available:
+        typer.secho(f"Modulo '{module}' nao encontrado.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    
+    # Registra handlers de uninstall
+    _register_uninstall_handlers()
+    
+    exec_ctx = ctx.obj or ExecutionContext()
+    
+    # Verifica se esta instalado
+    if not module_manager.is_module_installed(module_normalized):
+        typer.secho(f"Modulo '{module_normalized}' nao esta instalado.", fg=typer.colors.YELLOW)
+        
+        # Mesmo assim, oferece limpar recursos
+        if typer.confirm("Deseja tentar limpar recursos orfaos mesmo assim?", default=False):
+            if module_normalized in module_manager.UNINSTALL_HANDLERS:
+                module_manager.UNINSTALL_HANDLERS[module_normalized](exec_ctx)
+                typer.secho("Limpeza concluida.", fg=typer.colors.GREEN)
+        raise typer.Exit(code=0)
+    
+    # Mostra arvore de dependencias
+    module_manager.show_dependency_tree(module_normalized)
+    
+    # Analisa impacto
+    is_safe, affected = module_manager.show_uninstall_impact(module_normalized)
+    
+    if not is_safe and not force:
+        typer.secho(
+            f"\n⚠️  ATENCAO: Remover '{module_normalized}' pode quebrar {len(affected)} modulo(s)!",
+            fg=typer.colors.YELLOW,
+            bold=True,
+        )
+        
+        if cascade:
+            typer.echo(f"\nModo --cascade: os seguintes modulos serao removidos primeiro:")
+            for dep in affected:
+                typer.echo(f"  - {dep}")
+    
+    # Confirmacao
+    if not yes:
+        if cascade and affected:
+            confirm_msg = f"Remover '{module_normalized}' e {len(affected)} dependente(s)?"
+        else:
+            confirm_msg = f"Remover '{module_normalized}'?"
+        
+        if not typer.confirm(f"\n{confirm_msg}", default=False):
+            typer.secho("Operacao cancelada.", fg=typer.colors.YELLOW)
+            raise typer.Exit(code=0)
+    
+    # Executa uninstall
+    success = module_manager.uninstall_module(
+        module_normalized,
+        exec_ctx,
+        force=force,
+        cascade=cascade,
+    )
+    
+    if success:
+        typer.secho(f"\n✓ Modulo '{module_normalized}' removido com sucesso!", fg=typer.colors.GREEN, bold=True)
+    else:
+        typer.secho(f"\n✗ Falha ao remover modulo '{module_normalized}'.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+
+@app.command(name="list")
+def list_modules(
+    ctx: typer.Context,
+    installed_only: bool = typer.Option(False, "--installed", "-i", help="Mostra apenas modulos instalados"),
+    show_deps: bool = typer.Option(False, "--deps", "-d", help="Mostra dependencias detalhadas"),
+) -> None:
+    """Lista todos os modulos e seus status de instalacao.
+    
+    Exemplo:
+        raijin-server list
+        raijin-server list --installed
+        raijin-server list --deps
+    """
+    from rich.table import Table
+    
+    table = Table(title="Modulos Raijin Server")
+    table.add_column("Modulo", style="cyan")
+    table.add_column("Status", justify="center")
+    
+    if show_deps:
+        table.add_column("Dependencias", style="yellow")
+        table.add_column("Dependentes", style="magenta")
+    
+    table.add_column("Descricao", style="dim", max_width=40)
+    
+    status = module_manager.get_module_status()
+    
+    for module_name in sorted(status.keys()):
+        installed = status[module_name]
+        
+        if installed_only and not installed:
+            continue
+        
+        status_icon = "[green]✓ Instalado[/green]" if installed else "[dim]○ Pendente[/dim]"
+        desc = MODULE_DESCRIPTIONS.get(module_name, "")
+        
+        if show_deps:
+            deps = MODULE_DEPENDENCIES.get(module_name, [])
+            deps_str = ", ".join(deps) if deps else "-"
+            
+            from raijin_server.validators import get_reverse_dependencies
+            rev_deps = get_reverse_dependencies(module_name)
+            rev_deps_str = ", ".join(rev_deps) if rev_deps else "-"
+            
+            table.add_row(module_name, status_icon, deps_str, rev_deps_str, desc)
+        else:
+            table.add_row(module_name, status_icon, desc)
+    
+    console.print(table)
+    
+    # Resumo
+    total = len(status)
+    installed_count = sum(1 for v in status.values() if v)
+    console.print(f"\n[dim]Total: {total} modulos | Instalados: {installed_count} | Pendentes: {total - installed_count}[/dim]")
+
+
+@app.command()
+def deps(
+    module: str = typer.Argument(..., help="Nome do modulo"),
+) -> None:
+    """Mostra arvore de dependencias de um modulo.
+    
+    Exemplo:
+        raijin-server deps grafana
+        raijin-server deps kong
+    """
+    available = _get_available_modules()
+    module_normalized = module.replace("-", "_")
+    
+    if module_normalized not in available:
+        typer.secho(f"Modulo '{module}' nao encontrado.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    
+    module_manager.show_dependency_tree(module_normalized)
 
 
 def main_entrypoint() -> None:

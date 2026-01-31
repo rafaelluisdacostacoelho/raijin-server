@@ -269,3 +269,80 @@ def check_module_dependencies(module: str, ctx: ExecutionContext) -> bool:
             return False
 
     return True
+
+
+def get_reverse_dependencies(module: str) -> List[str]:
+    """Retorna lista de modulos que dependem do modulo especificado.
+    
+    Args:
+        module: Nome do modulo para verificar dependencias reversas
+        
+    Returns:
+        Lista de modulos que dependem deste modulo
+    """
+    dependents = []
+    for mod, deps in MODULE_DEPENDENCIES.items():
+        if module in deps:
+            dependents.append(mod)
+    return dependents
+
+
+def get_installed_dependents(module: str) -> List[str]:
+    """Retorna lista de modulos instalados que dependem do modulo especificado.
+    
+    Args:
+        module: Nome do modulo para verificar
+        
+    Returns:
+        Lista de modulos instalados que dependem deste modulo
+    """
+    state_dir = Path(os.environ.get("RAIJIN_STATE_DIR", "/var/lib/raijin-server/state"))
+    if not state_dir.exists():
+        state_dir = Path.home() / ".local/share/raijin-server/state"
+    
+    dependents = get_reverse_dependencies(module)
+    installed = []
+    
+    for dep in dependents:
+        state_file = state_dir / f"{dep}.done"
+        if state_file.exists():
+            installed.append(dep)
+    
+    return installed
+
+
+def check_uninstall_safety(module: str) -> Tuple[bool, List[str], str]:
+    """Verifica se e seguro remover um modulo.
+    
+    Args:
+        module: Nome do modulo a ser removido
+        
+    Returns:
+        Tupla (is_safe, affected_modules, warning_message)
+    """
+    installed_dependents = get_installed_dependents(module)
+    
+    if not installed_dependents:
+        return True, [], ""
+    
+    # Constroi arvore de impacto (recursivo)
+    all_affected = set(installed_dependents)
+    to_check = list(installed_dependents)
+    
+    while to_check:
+        current = to_check.pop(0)
+        sub_dependents = get_installed_dependents(current)
+        for sub in sub_dependents:
+            if sub not in all_affected:
+                all_affected.add(sub)
+                to_check.append(sub)
+    
+    affected_list = sorted(list(all_affected))
+    
+    warning = f"AVISO: Remover '{module}' afetara os seguintes modulos instalados:\n"
+    for dep in affected_list:
+        warning += f"  - {dep}\n"
+    warning += "\nEstes modulos podem parar de funcionar corretamente!"
+    
+    return False, affected_list, warning
+
