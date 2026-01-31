@@ -185,10 +185,10 @@ spec:
     write_file(config_path, istio_config, ctx)
     
     # Instala usando o arquivo de configuração
+    # Nota: istioctl não tem --timeout, ele usa readiness probes internamente
     install_cmd = [
         "istioctl", "install",
         "-f", str(config_path),
-        "--timeout", "10m",
         "-y",
     ]
     
