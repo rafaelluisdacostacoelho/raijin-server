@@ -494,6 +494,156 @@ def show_client_config(ctx: ExecutionContext) -> None:
     typer.echo("")
 
 
+def diagnose_and_fix(ctx: ExecutionContext) -> None:
+    """Diagnostica e corrige problemas de roteamento da VPN."""
+    require_root(ctx)
+    
+    typer.secho("\n🔍 Diagnóstico de VPN", fg=typer.colors.CYAN, bold=True)
+    typer.echo("="*60)
+    
+    # 1. Verificar se WireGuard está rodando
+    typer.echo("\n1. Verificando status do WireGuard...")
+    result = run_cmd(["systemctl", "is-active", "wg-quick@wg0"], ctx, check=False)
+    
+    if result.returncode != 0:
+        typer.secho("   ✗ WireGuard não está rodando!", fg=typer.colors.RED)
+        typer.echo("   Execute: systemctl start wg-quick@wg0")
+        return
+    
+    typer.secho("   ✓ WireGuard ativo", fg=typer.colors.GREEN)
+    
+    # 2. Verificar IP forwarding
+    typer.echo("\n2. Verificando IP forwarding...")
+    try:
+        forward = Path("/proc/sys/net/ipv4/ip_forward").read_text().strip()
+        if forward == "1":
+            typer.secho("   ✓ IP forwarding habilitado", fg=typer.colors.GREEN)
+        else:
+            typer.secho("   ✗ IP forwarding desabilitado", fg=typer.colors.YELLOW)
+            typer.echo("   Habilitando...")
+            run_cmd(["sysctl", "-w", "net.ipv4.ip_forward=1"], ctx)
+            typer.secho("   ✓ IP forwarding habilitado", fg=typer.colors.GREEN)
+    except Exception as e:
+        typer.secho(f"   ✗ Erro ao verificar: {e}", fg=typer.colors.RED)
+    
+    # 3. Detectar interface de rede principal
+    typer.echo("\n3. Detectando interface de rede...")
+    result = run_cmd(["ip", "route", "show", "default"], ctx, check=False)
+    
+    if result.returncode != 0:
+        typer.secho("   ✗ Não foi possível detectar interface", fg=typer.colors.RED)
+        return
+    
+    match = re.search(r'dev\s+(\S+)', result.stdout)
+    if not match:
+        typer.secho("   ✗ Interface não encontrada", fg=typer.colors.RED)
+        return
+    
+    iface = match.group(1)
+    typer.secho(f"   ✓ Interface detectada: {iface}", fg=typer.colors.GREEN)
+    
+    # 4. Verificar regra MASQUERADE
+    typer.echo("\n4. Verificando regra MASQUERADE...")
+    result = run_cmd(
+        ["iptables", "-t", "nat", "-L", "POSTROUTING", "-v", "-n"],
+        ctx,
+        check=False
+    )
+    
+    has_masquerade = False
+    if "10.8.0.0/24" in result.stdout and "MASQUERADE" in result.stdout:
+        has_masquerade = True
+        typer.secho("   ✓ Regra MASQUERADE existente", fg=typer.colors.GREEN)
+    else:
+        typer.secho("   ✗ Regra MASQUERADE não encontrada", fg=typer.colors.YELLOW)
+        typer.echo(f"   Adicionando regra para interface {iface}...")
+        
+        run_cmd([
+            "iptables", "-t", "nat", "-A", "POSTROUTING",
+            "-s", "10.8.0.0/24", "-o", iface, "-j", "MASQUERADE"
+        ], ctx)
+        
+        typer.secho("   ✓ Regra MASQUERADE adicionada", fg=typer.colors.GREEN)
+    
+    # 5. Verificar UFW routed
+    typer.echo("\n5. Verificando UFW routed...")
+    result = run_cmd(["ufw", "status", "verbose"], ctx, check=False)
+    
+    if "deny (routed)" in result.stdout.lower():
+        typer.secho("   ✗ UFW está bloqueando routed", fg=typer.colors.YELLOW)
+        typer.echo("   Configurando UFW para permitir routed...")
+        
+        run_cmd(["ufw", "default", "allow", "routed"], ctx, check=False)
+        typer.secho("   ✓ UFW configurado", fg=typer.colors.GREEN)
+    else:
+        typer.secho("   ✓ UFW permite routed", fg=typer.colors.GREEN)
+    
+    # 6. Verificar regras de FORWARD para wg0
+    typer.echo("\n6. Verificando regras FORWARD...")
+    result = run_cmd(["iptables", "-L", "FORWARD", "-v", "-n"], ctx, check=False)
+    
+    has_forward_in = "wg0" in result.stdout and "ACCEPT" in result.stdout
+    
+    if not has_forward_in:
+        typer.secho("   ✗ Regras FORWARD ausentes", fg=typer.colors.YELLOW)
+        typer.echo("   Adicionando regras FORWARD...")
+        
+        run_cmd(["iptables", "-A", "FORWARD", "-i", "wg0", "-j", "ACCEPT"], ctx, check=False)
+        run_cmd(["iptables", "-A", "FORWARD", "-o", "wg0", "-j", "ACCEPT"], ctx, check=False)
+        
+        typer.secho("   ✓ Regras FORWARD adicionadas", fg=typer.colors.GREEN)
+    else:
+        typer.secho("   ✓ Regras FORWARD existentes", fg=typer.colors.GREEN)
+    
+    # 7. Verificar UFW permite wg0
+    typer.echo("\n7. Verificando UFW para wg0...")
+    result = run_cmd(["ufw", "status"], ctx, check=False)
+    
+    if "wg0" not in result.stdout:
+        typer.secho("   ✗ UFW não permite wg0", fg=typer.colors.YELLOW)
+        typer.echo("   Adicionando regra UFW...")
+        
+        run_cmd(["ufw", "allow", "in", "on", "wg0"], ctx, check=False)
+        typer.secho("   ✓ UFW configurado para wg0", fg=typer.colors.GREEN)
+    else:
+        typer.secho("   ✓ UFW permite wg0", fg=typer.colors.GREEN)
+    
+    # 8. Reiniciar WireGuard para aplicar mudanças
+    typer.echo("\n8. Reiniciando WireGuard...")
+    run_cmd(["systemctl", "restart", "wg-quick@wg0"], ctx)
+    typer.secho("   ✓ WireGuard reiniciado", fg=typer.colors.GREEN)
+    
+    # 9. Verificar peers conectados
+    typer.echo("\n9. Verificando peers conectados...")
+    result = run_cmd(["wg", "show"], ctx, check=False)
+    
+    peer_count = result.stdout.count("peer:")
+    typer.echo(f"   Peers configurados: {peer_count}")
+    
+    if "latest handshake" in result.stdout.lower():
+        typer.secho("   ✓ Handshake detectado (cliente conectado)", fg=typer.colors.GREEN)
+    else:
+        typer.secho("   ⚠ Nenhum handshake recente", fg=typer.colors.YELLOW)
+        typer.echo("   Peça ao cliente para reconectar no WireGuard")
+    
+    # 10. Teste básico de conectividade
+    typer.echo("\n10. Testando conectividade VPN...")
+    result = run_cmd(["ping", "-c", "2", "-W", "1", "10.8.0.1"], ctx, check=False)
+    
+    if result.returncode == 0:
+        typer.secho("   ✓ Ping para 10.8.0.1 bem-sucedido", fg=typer.colors.GREEN)
+    else:
+        typer.secho("   ⚠ Ping falhou (normal se nenhum cliente conectado)", fg=typer.colors.YELLOW)
+    
+    typer.echo("\n" + "="*60)
+    typer.secho("✓ Diagnóstico concluído!", fg=typer.colors.GREEN, bold=True)
+    typer.echo("\nPróximos passos:")
+    typer.echo("  1. No cliente Windows, desconecte e reconecte o túnel WireGuard")
+    typer.echo("  2. Teste: ping 10.8.0.1")
+    typer.echo("  3. Verifique 'sudo wg show' para ver handshake")
+    typer.echo("")
+
+
 def run(ctx: ExecutionContext) -> None:
     """Menu interativo para gerenciar clientes VPN."""
     require_root(ctx)
@@ -506,9 +656,10 @@ def run(ctx: ExecutionContext) -> None:
         typer.echo("2. Listar clientes")
         typer.echo("3. Remover cliente")
         typer.echo("4. Mostrar configuração de cliente")
-        typer.echo("5. Sair")
+        typer.echo("5. Diagnosticar e corrigir roteamento")
+        typer.echo("6. Sair")
         
-        choice = typer.prompt("\nEscolha uma opção", default="5")
+        choice = typer.prompt("\nEscolha uma opção", default="6")
         
         try:
             if choice == "1":
@@ -520,6 +671,8 @@ def run(ctx: ExecutionContext) -> None:
             elif choice == "4":
                 show_client_config(ctx)
             elif choice == "5":
+                diagnose_and_fix(ctx)
+            elif choice == "6":
                 typer.echo("Saindo...")
                 break
             else:
