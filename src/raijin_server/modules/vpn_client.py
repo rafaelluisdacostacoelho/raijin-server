@@ -264,6 +264,7 @@ def _remove_peer_from_server(public_key: str, ctx: ExecutionContext) -> None:
 def _create_client_config(
     name: str,
     private_key: str,
+    public_key: str,
     client_ip: str,
     server_config: dict,
 ) -> str:
@@ -278,8 +279,10 @@ def _create_client_config(
     if not endpoint:
         endpoint = typer.prompt("Endpoint público do servidor (IP ou domínio)")
     
-    config = f"""[Interface]
-# Cliente: {name}
+    # Inclui chave pública do cliente como comentário para referência rápida
+    config = f"""# Cliente: {name}
+# PublicKey: {public_key}
+[Interface]
 PrivateKey = {private_key}
 Address = {client_ip}
 DNS = {dns}
@@ -332,7 +335,7 @@ def add_client(ctx: ExecutionContext) -> None:
     CLIENTS_DIR.mkdir(parents=True, exist_ok=True)
     
     # Cria configuração do cliente
-    client_config = _create_client_config(name, private_key, client_ip, server_config)
+    client_config = _create_client_config(name, private_key, public_key, client_ip, server_config)
     
     client_file = CLIENTS_DIR / f"{name}.conf"
     write_file(client_file, client_config, ctx)
