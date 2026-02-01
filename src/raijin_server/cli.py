@@ -27,6 +27,7 @@ from raijin_server.modules import (
     grafana,
     harness,
     hardening,
+    internal_dns,
     istio,
     kafka,
     kong,
@@ -44,6 +45,7 @@ from raijin_server.modules import (
     traefik,
     velero,
     vpn,
+    vpn_client,
 )
 from raijin_server.utils import ExecutionContext, logger, active_log_file, available_log_files, page_text, ensure_tool
 from raijin_server.validators import validate_system_requirements, check_module_dependencies, MODULE_DEPENDENCIES
@@ -85,6 +87,8 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "essentials": essentials.run,
     "firewall": firewall.run,
     "vpn": vpn.run,
+    "vpn_client": vpn_client.run,
+    "internal_dns": internal_dns.run,
     "kubernetes": kubernetes.run,
     "calico": calico.run,
     "metallb": metallb.run,
@@ -120,6 +124,8 @@ MODULE_DESCRIPTIONS: Dict[str, str] = {
     "essentials": "Pacotes basicos, repos, utilitarios",
     "firewall": "Regras UFW padrao e serviços basicos",
     "vpn": "Provisiona WireGuard com cliente inicial",
+    "vpn_client": "Gerencia clientes VPN (adicionar/remover/listar)",
+    "internal_dns": "Configura DNS interno para domínios privados (*.asgard.internal)",
     "kubernetes": "Instala kubeadm/kubelet/kubectl e inicializa cluster",
     "calico": "CNI Calico e politica default deny",
     "metallb": "LoadBalancer em bare metal (pool L2)",

@@ -50,8 +50,133 @@ Dica: para transportar por QR code (mobile), no servidor: `qrencode -t ansiutf8 
 - Gere novas chaves em `/etc/wireguard/clients/` com `wg genkey`/`wg pubkey`, crie um `<novo>.conf` seguindo o modelo inicial e adicione o peer correspondente ao `wg0.conf`.
 - Após editar `wg0.conf`, recarregue: `sudo systemctl restart wg-quick@wg0`.
 
+## Acesso seguro aos dashboards via VPN
+
+Uma vez conectado à VPN, você pode acessar todos os serviços do cluster de forma segura usando port-forward:
+
+### Instalar kubectl no cliente (Windows/Mac/Linux)
+```bash
+# Windows (via Chocolatey)
+choco install kubernetes-cli
+
+# macOS (via Homebrew)
+brew install kubectl
+
+# Linux
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+```
+
+### Copiar kubeconfig do servidor
+```bash
+# No servidor, copie o kubeconfig
+sudo cat /etc/kubernetes/admin.conf > ~/kubeconfig
+
+# No cliente (Windows/WSL/Linux/Mac), copie via scp
+scp user@10.8.0.1:~/kubeconfig ~/.kube/config
+
+# Ou se estiver usando IP público
+scp user@seu-servidor.com:~/kubeconfig ~/.kube/config
+```
+
+### Acessar dashboards via port-forward
+
+**Grafana:**
+```bash
+kubectl -n observability port-forward svc/grafana 3000:80
+# Acesse: http://localhost:3000
+```
+
+**Prometheus:**
+```bash
+kubectl -n observability port-forward svc/kube-prometheus-stack-prometheus 9090:9090
+# Acesse: http://localhost:9090
+```
+
+**Alertmanager:**
+```bash
+kubectl -n observability port-forward svc/kube-prometheus-stack-alertmanager 9093:9093
+# Acesse: http://localhost:9093
+```
+
+**MinIO Console:**
+```bash
+kubectl -n minio port-forward svc/minio-console 9001:9001
+# Acesse: http://localhost:9001
+```
+
+**Traefik Dashboard:**
+```bash
+kubectl -n kube-system port-forward svc/traefik 9000:9000
+# Acesse: http://localhost:9000/dashboard/
+```
+
+### Dica: Usar múltiplas portas simultaneamente
+
+**Método 1: Script Automatizado (Recomendado)**
+
+```bash
+# Use o script pronto que gerencia tudo automaticamente
+~/raijin-server/scripts/port-forward-all.sh start
+
+# Ver status
+~/raijin-server/scripts/port-forward-all.sh status
+
+# Parar todos
+~/raijin-server/scripts/port-forward-all.sh stop
+```
+
+**Método 2: Múltiplos Terminais**
+
+Abra múltiplos terminais ou use um gerenciador de sessões:
+
+```bash
+# Terminal 1
+kubectl -n observability port-forward svc/grafana 3000:80
+
+# Terminal 2
+kubectl -n observability port-forward svc/kube-prometheus-stack-prometheus 9090:9090
+
+# Terminal 3
+kubectl -n minio port-forward svc/minio-console 9001:9001
+```
+
+Ou use um script:
+```bash
+#!/bin/bash
+kubectl -n observability port-forward svc/grafana 3000:80 &
+kubectl -n observability port-forward svc/kube-prometheus-stack-prometheus 9090:9090 &
+kubectl -n minio port-forward svc/minio-console 9001:9001 &
+wait
+```
+
 ## Boas práticas
 - Use DNS público estável ou registro dinâmico para o endpoint.
 - Mantenha a porta WireGuard aberta no firewall/roteador apenas no protocolo UDP.
 - Se estiver em cloud com IP público direto, confirme que a security group/liberação de porta está ativa.
 - Guarde os arquivos `.key` somente no servidor; distribua apenas os `.conf` dos clientes.
+
+## Ferramentas Visuais
+
+Para uma melhor experiência de gerenciamento, considere usar ferramentas visuais:
+
+- **Lens:** IDE gráfica para Kubernetes ([docs/VISUAL_TOOLS.md](VISUAL_TOOLS.md))
+- **K9s:** Interface terminal interativa ([docs/VISUAL_TOOLS.md](VISUAL_TOOLS.md))
+- **Script de port-forward automático:** `scripts/port-forward-all.sh`
+
+## Gerenciamento de Clientes
+
+Use o módulo dedicado para gerenciar clientes VPN facilmente:
+
+```bash
+# Menu interativo
+sudo raijin vpn-client
+
+# Opções:
+# 1. Adicionar cliente - Cria novo cliente com chaves e configuração
+# 2. Listar clientes - Mostra todos os clientes configurados
+# 3. Remover cliente - Remove cliente e revoga acesso
+# 4. Mostrar configuração - Exibe .conf de um cliente
+```
+
+Veja documentação completa em [docs/VISUAL_TOOLS.md](VISUAL_TOOLS.md).

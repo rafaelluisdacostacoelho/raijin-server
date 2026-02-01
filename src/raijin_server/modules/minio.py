@@ -243,6 +243,9 @@ def _set_default_storage_class(ctx: ExecutionContext, name: str) -> None:
 
 def _ensure_storage_class(ctx: ExecutionContext) -> str:
     """Garante que existe uma StorageClass disponivel, instalando local-path se necessario."""
+    if ctx.dry_run:
+        return "local-path"  # Retorna um valor dummy para dry-run
+    
     default_sc = _get_default_storage_class(ctx)
     available = _list_storage_classes(ctx)
 
@@ -509,9 +512,16 @@ def run(ctx: ExecutionContext) -> None:
     typer.echo("\nCredenciais:")
     typer.echo(f"  Root User: {root_user}")
     typer.echo(f"  Root Password: {root_password}")
-    typer.echo("\nPara acessar a API (port-forward):")
-    typer.echo("  kubectl -n minio port-forward svc/minio 9000:9000")
+    
     if enable_console:
-        typer.echo("\nPara acessar o Console Web (port-forward):")
-        typer.echo("  kubectl -n minio port-forward svc/minio-console 9001:9001")
-        typer.echo("  Acesse: http://localhost:9001")
+        typer.secho("\n🔒 Acesso Seguro ao MinIO Console via VPN:", fg=typer.colors.CYAN, bold=True)
+        typer.echo("\n1. Configure VPN (se ainda não tiver):")
+        typer.echo("   sudo raijin vpn")
+        typer.echo("\n2. Conecte via WireGuard")
+        typer.echo("\n3. Faça port-forward:")
+        typer.echo("   kubectl -n minio port-forward svc/minio-console 9001:9001")
+        typer.echo("\n4. Acesse no navegador:")
+        typer.echo("   http://localhost:9001")
+    
+    typer.echo("\nPara acessar a API S3 (port-forward):")
+    typer.echo("  kubectl -n minio port-forward svc/minio 9000:9000")

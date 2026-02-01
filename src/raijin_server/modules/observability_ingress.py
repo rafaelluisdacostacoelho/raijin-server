@@ -163,7 +163,35 @@ spec:
 
 def run(ctx: ExecutionContext) -> None:
     require_root(ctx)
-    typer.echo("Provisionando ingress seguro para observabilidade...")
+    
+    typer.secho("⚠️  AVISO DE SEGURANÇA", fg=typer.colors.RED, bold=True)
+    typer.secho(
+        "\nExpor ferramentas de observabilidade publicamente é um RISCO DE SEGURANÇA significativo!",
+        fg=typer.colors.YELLOW,
+    )
+    typer.secho(
+        "Mesmo com TLS e BasicAuth, você estará expondo informações sensíveis do cluster.\n",
+        fg=typer.colors.YELLOW,
+    )
+    typer.secho("✅ RECOMENDAÇÃO FORTE:", fg=typer.colors.GREEN, bold=True)
+    typer.echo("1. Configure VPN: sudo raijin vpn")
+    typer.echo("2. Use port-forward via VPN para acesso seguro")
+    typer.echo("3. Mantenha os dashboards APENAS na rede interna\n")
+    
+    proceed = typer.confirm(
+        "Você REALMENTE quer expor os dashboards publicamente?",
+        default=False
+    )
+    
+    if not proceed:
+        typer.secho("\n✓ Boa decisão! Use VPN para acesso seguro.", fg=typer.colors.GREEN)
+        typer.echo("\nPara acessar via VPN + port-forward:")
+        typer.echo("  kubectl -n observability port-forward svc/grafana 3000:80")
+        typer.echo("  kubectl -n observability port-forward svc/kube-prometheus-stack-prometheus 9090:9090")
+        typer.echo("  kubectl -n observability port-forward svc/kube-prometheus-stack-alertmanager 9093:9093")
+        raise typer.Exit(0)
+    
+    typer.echo("\nProvisionando ingress seguro para observabilidade...")
 
     namespace = typer.prompt("Namespace dos componentes", default="observability")
     ingress_class = typer.prompt("IngressClass dedicada", default="traefik")

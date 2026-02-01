@@ -1,7 +1,45 @@
 # Scripts Utilitários - Raijin Server
 
-Este diretório documenta os scripts auxiliares inclusos no pacote em `src/raijin_server/scripts/`.
-Eles são instalados junto com o CLI, então você pode chamá-los mesmo fora do repositório.
+Este diretório documenta os scripts auxiliares inclusos no pacote em `src/raijin_server/scripts/` e scripts standalone em `scripts/`.
+
+## Scripts no Diretório Raiz (`scripts/`)
+
+### 🔌 port-forward-all.sh
+**Automação de Port-Forwards para Dashboards**
+
+Gerencia port-forwards de todos os dashboards administrativos automaticamente.
+
+**Uso:**
+```bash
+# Iniciar todos os port-forwards
+./scripts/port-forward-all.sh start
+
+# Parar todos
+./scripts/port-forward-all.sh stop
+
+# Ver status
+./scripts/port-forward-all.sh status
+
+# Reiniciar todos
+./scripts/port-forward-all.sh restart
+```
+
+**Serviços configurados:**
+- Grafana (localhost:3000)
+- Prometheus (localhost:9090)
+- Alertmanager (localhost:9093)
+- MinIO Console (localhost:9001)
+- Traefik Dashboard (localhost:9000)
+- Kong Admin API (localhost:8001)
+- Loki (localhost:3100)
+
+**Pré-requisitos:** VPN conectada + kubectl configurado
+
+Veja documentação completa no próprio README.md do scripts/.
+
+---
+
+## Scripts Empacotados (`src/raijin_server/scripts/`)
 
 ## Recuperar caminho em runtime
 

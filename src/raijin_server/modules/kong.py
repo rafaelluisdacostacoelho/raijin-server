@@ -393,16 +393,20 @@ podAnnotations:
     # Mostra informacoes uteis
     typer.secho("\n✓ Kong Gateway instalado com sucesso.", fg=typer.colors.GREEN, bold=True)
     
-    typer.echo("\n📌 Acesso ao Kong Proxy:")
+    typer.echo("\n📌 Acesso ao Kong Proxy (APIs públicas):")
     if service_type == "LoadBalancer":
         typer.echo("  kubectl -n kong get svc kong-kong-proxy  # Aguarde EXTERNAL-IP")
     else:
         typer.echo("  kubectl -n kong get svc kong-kong-proxy  # Use NodePort")
     
     if enable_admin:
-        typer.echo("\n📌 Admin API (port-forward):")
-        typer.echo("  kubectl -n kong port-forward svc/kong-kong-admin 8001:8001")
-        typer.echo("  curl http://localhost:8001/status")
+        typer.secho("\n🔒 Admin API - Acesso Seguro via VPN:", fg=typer.colors.CYAN, bold=True)
+        typer.echo("\n1. Configure VPN: sudo raijin vpn")
+        typer.echo("2. Conecte via WireGuard")
+        typer.echo("3. Port-forward:")
+        typer.echo("   kubectl -n kong port-forward svc/kong-kong-admin 8001:8001")
+        typer.echo("4. Teste:")
+        typer.echo("   curl http://localhost:8001/status")
     
     if enable_metrics:
         typer.echo("\n📌 Métricas Prometheus:")

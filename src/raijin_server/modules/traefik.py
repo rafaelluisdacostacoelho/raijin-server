@@ -75,7 +75,25 @@ def run(ctx: ExecutionContext) -> None:
             _uninstall_traefik(ctx)
 
     acme_email = typer.prompt("Email para ACME/Let's Encrypt", default="admin@example.com")
-    dashboard_host = typer.prompt("Host para dashboard (opcional)", default="traefik.local")
+    
+    # Dashboard do Traefik deve ser acessado via VPN, não publicamente
+    enable_dashboard = typer.confirm(
+        "Habilitar dashboard público? (NÃO recomendado - use VPN + port-forward)",
+        default=False
+    )
+    
+    dashboard_host = ""
+    if enable_dashboard:
+        typer.secho(
+            "\n⚠️  ATENÇÃO: Expor dashboard do Traefik publicamente é um risco de segurança!",
+            fg=typer.colors.YELLOW,
+            bold=True,
+        )
+        typer.secho(
+            "Recomendação: Acesse via VPN com port-forward.\n",
+            fg=typer.colors.YELLOW,
+        )
+        dashboard_host = typer.prompt("Host para dashboard", default="traefik.local")
 
     node_name = _detect_node_name(ctx)
 
@@ -112,3 +130,19 @@ def run(ctx: ExecutionContext) -> None:
         ctx=ctx,
         values=values,
     )
+
+    typer.secho("\n✓ Traefik instalado com sucesso.", fg=typer.colors.GREEN, bold=True)
+    
+    if enable_dashboard and dashboard_host:
+        typer.echo(f"\nDashboard público: https://{dashboard_host}/dashboard/")
+    else:
+        typer.secho("\n🔒 Acesso Seguro ao Dashboard via VPN:", fg=typer.colors.CYAN, bold=True)
+        typer.echo("\n1. Configure VPN (se ainda não tiver):")
+        typer.echo("   sudo raijin vpn")
+        typer.echo("\n2. Conecte via WireGuard")
+        typer.echo("\n3. Acesse via NodePort ou port-forward:")
+        typer.echo("   kubectl -n traefik port-forward deployment/traefik 9000:9000")
+        typer.echo("\n4. Abra no navegador:")
+        typer.echo("   http://localhost:9000/dashboard/")
+        typer.echo("\nOu via service direto (se LoadBalancer/NodePort):")
+        typer.echo("   kubectl -n traefik get svc traefik")
