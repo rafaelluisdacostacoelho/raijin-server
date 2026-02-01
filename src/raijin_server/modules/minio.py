@@ -124,6 +124,35 @@ def run(ctx: ExecutionContext) -> None:
         "Modo de operacao (standalone/distributed)",
         default="standalone",
     )
+    is_distributed = mode.lower().startswith("d")
+
+    replicas = 1
+    resources_req_cpu = "250m"
+    resources_req_mem = "512Mi"
+    resources_lim_cpu = "500m"
+    resources_lim_mem = "1Gi"
+
+    if is_distributed:
+        replicas = typer.prompt(
+            "Qtd de pods MinIO (replicas)",
+            default="4",
+        )
+        resources_req_cpu = typer.prompt(
+            "CPU request por pod (distributed)",
+            default="500m",
+        )
+        resources_req_mem = typer.prompt(
+            "Memoria request por pod (distributed)",
+            default="1Gi",
+        )
+        resources_lim_cpu = typer.prompt(
+            "CPU limit por pod (distributed)",
+            default="1",
+        )
+        resources_lim_mem = typer.prompt(
+            "Memoria limit por pod (distributed)",
+            default="2Gi",
+        )
     
     root_user = typer.prompt("Root user (admin)", default="minio-admin")
     root_password = typer.prompt(
@@ -147,10 +176,11 @@ def run(ctx: ExecutionContext) -> None:
         # Persistence
         "persistence.enabled=true",
         f"persistence.size={persistence_size}",
-        # Resources (production defaults)
-        "resources.requests.memory=512Mi",
-        "resources.requests.cpu=250m",
-        "resources.limits.memory=1Gi",
+        # Resources
+        f"resources.requests.memory={resources_req_mem}",
+        f"resources.requests.cpu={resources_req_cpu}",
+        f"resources.limits.memory={resources_lim_mem}",
+        f"resources.limits.cpu={resources_lim_cpu}",
         # Tolerations para control-plane
         "tolerations[0].key=node-role.kubernetes.io/control-plane",
         "tolerations[0].operator=Exists",
@@ -161,6 +191,9 @@ def run(ctx: ExecutionContext) -> None:
         # NodeSelector
         f"nodeSelector.kubernetes\\.io/hostname={node_name}",
     ]
+
+    if is_distributed:
+        values.append(f"replicas={replicas}")
     
     # Console
     if enable_console:
