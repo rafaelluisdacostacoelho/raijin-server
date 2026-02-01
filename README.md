@@ -46,17 +46,29 @@ python3 -m venv ~/.venvs/midgard
 source ~/.venvs/midgard/bin/activate
 pip install -U pip setuptools
 
-# 2) Instalar a partir do source (dev)
-pip install -U raijin-server
+# 2) Instalar a partir do PyPI (ou source)
+pip install -U raijin-server==x.x.x
 
 # 3) Uso com sudo preservando o venv
 sudo -E ~/.venvs/midgard/bin/raijin-server --version
 sudo -E ~/.venvs/midgard/bin/raijin-server validate
 sudo -E ~/.venvs/midgard/bin/raijin-server full-install
+sudo -E ~/.venvs/midgard/bin/raijin-server menu
 
 # 4) Quando terminar
 deactivate
 ```
+
+> **Após instalar:**
+>
+> Execute:
+>
+> ```bash
+> pip install -U raijin-server==x.x.x
+> sudo -E ~/.venvs/midgard/bin/raijin-server menu
+> ```
+>
+> Isso garante que o menu principal do Raijin Server estará disponível no Ubuntu Server.
 
 > Dica: se precisar reinstalar, remova o venv (`rm -rf ~/.venvs/midgard`), recrie e repita o passo 2. O `-E` no sudo mantém o venv ativo para o Python.
 
