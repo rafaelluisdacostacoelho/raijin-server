@@ -103,22 +103,58 @@ def _list_existing_clients() -> List[dict]:
     content = WG0_CONF.read_text()
     clients = []
     
-    # Parse peers
-    current_peer = {}
-    for line in content.split("\n"):
-        line = line.strip()
-        
-        if line.startswith("# Cliente:"):
-            if current_peer:
-                clients.append(current_peer)
-            current_peer = {"name": line.split(":", 1)[1].strip()}
-        elif line.startswith("PublicKey =") and current_peer:
-            current_peer["public_key"] = line.split("=")[1].strip()
-        elif line.startswith("AllowedIPs =") and current_peer:
-            current_peer["ip"] = line.split("=")[1].strip()
+    # Parse peers - suporta múltiplos formatos de comentário
+    lines = content.split("\n")
+    i = 0
     
-    if current_peer:
-        clients.append(current_peer)
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Detecta início de um bloco [Peer]
+        if line == "[Peer]":
+            peer_name = None
+            public_key = None
+            allowed_ips = None
+            
+            # Verifica linha anterior para comentário com nome
+            if i > 0:
+                prev_line = lines[i - 1].strip()
+                # Formato: "# cliente_nome" ou "# Cliente: nome"
+                if prev_line.startswith("#"):
+                    comment = prev_line[1:].strip()
+                    if comment.lower().startswith("cliente:"):
+                        peer_name = comment.split(":", 1)[1].strip()
+                    else:
+                        # Nome direto após # (formato do módulo vpn)
+                        peer_name = comment
+            
+            # Lê configurações do peer
+            i += 1
+            while i < len(lines):
+                peer_line = lines[i].strip()
+                if peer_line.startswith("[") or (peer_line.startswith("#") and i + 1 < len(lines) and lines[i + 1].strip() == "[Peer]"):
+                    break
+                
+                if peer_line.startswith("PublicKey"):
+                    public_key = peer_line.split("=", 1)[1].strip()
+                elif peer_line.startswith("AllowedIPs"):
+                    allowed_ips = peer_line.split("=", 1)[1].strip()
+                # Comentário inline com nome do cliente
+                elif peer_line.startswith("#") and not peer_name:
+                    peer_name = peer_line[1:].strip()
+                
+                i += 1
+            
+            # Adiciona peer se tiver pelo menos chave pública
+            if public_key:
+                clients.append({
+                    "name": peer_name or f"cliente_{len(clients) + 1}",
+                    "public_key": public_key,
+                    "ip": allowed_ips or "N/A",
+                })
+            continue
+        
+        i += 1
     
     return clients
 
@@ -148,57 +184,81 @@ def _add_peer_to_server(name: str, public_key: str, client_ip: str, ctx: Executi
     """Adiciona peer ao arquivo de configuração do servidor."""
     content = WG0_CONF.read_text()
     
+    # Remove linhas em branco extras no final
+    content = content.rstrip() + "\n"
+    
+    # Formato compatível com o módulo vpn original
     peer_block = f"""
-# Cliente: {name}
+# {name}
 [Peer]
 PublicKey = {public_key}
 AllowedIPs = {client_ip}
 """
     
     # Adiciona peer ao final
-    content += "\n" + peer_block
+    content += peer_block
     
     write_file(WG0_CONF, content, ctx)
     
-    # Recarrega configuração
+    # Recarrega configuração via wg syncconf (mais rápido) ou restart
     typer.echo("Recarregando WireGuard...")
-    run_cmd(["systemctl", "restart", "wg-quick@wg0"], ctx, check=False)
+    # Tenta wg syncconf primeiro (não derruba conexões existentes)
+    result = run_cmd(
+        ["bash", "-c", f"wg syncconf wg0 <(wg-quick strip wg0)"],
+        ctx,
+        check=False
+    )
+    if result.returncode != 0:
+        # Fallback para restart
+        run_cmd(["systemctl", "restart", "wg-quick@wg0"], ctx, check=False)
 
 
 def _remove_peer_from_server(public_key: str, ctx: ExecutionContext) -> None:
     """Remove peer do arquivo de configuração do servidor."""
     content = WG0_CONF.read_text()
     
-    # Remove bloco do peer
+    # Remove bloco do peer - suporta múltiplos formatos
     lines = content.split("\n")
     new_lines = []
     skip_until_next_section = False
     
-    for line in lines:
+    for i, line in enumerate(lines):
         if f"PublicKey = {public_key}" in line:
             skip_until_next_section = True
-            # Remove também o comentário anterior
-            if new_lines and new_lines[-1].startswith("# Cliente:"):
-                new_lines.pop()
-            if new_lines and new_lines[-1].strip() == "":
-                new_lines.pop()
-            if new_lines and new_lines[-1].strip() == "[Peer]":
+            # Remove também o comentário anterior e [Peer]
+            while new_lines and (
+                new_lines[-1].startswith("#") or 
+                new_lines[-1].strip() == "" or
+                new_lines[-1].strip() == "[Peer]"
+            ):
                 new_lines.pop()
             continue
         
         if skip_until_next_section:
-            if line.startswith("[") or line.startswith("# Cliente:"):
+            # Próximo peer ou seção
+            stripped = line.strip()
+            if stripped.startswith("[") or (stripped.startswith("#") and i + 1 < len(lines) and lines[i + 1].strip() == "[Peer]"):
                 skip_until_next_section = False
             else:
                 continue
         
         new_lines.append(line)
     
-    write_file(WG0_CONF, "\n".join(new_lines), ctx)
+    # Remove linhas em branco extras no final
+    while new_lines and new_lines[-1].strip() == "":
+        new_lines.pop()
+    
+    write_file(WG0_CONF, "\n".join(new_lines) + "\n", ctx)
     
     # Recarrega configuração
     typer.echo("Recarregando WireGuard...")
-    run_cmd(["systemctl", "restart", "wg-quick@wg0"], ctx, check=False)
+    result = run_cmd(
+        ["bash", "-c", f"wg syncconf wg0 <(wg-quick strip wg0)"],
+        ctx,
+        check=False
+    )
+    if result.returncode != 0:
+        run_cmd(["systemctl", "restart", "wg-quick@wg0"], ctx, check=False)
 
 
 def _create_client_config(
@@ -387,6 +447,8 @@ def show_client_config(ctx: ExecutionContext) -> None:
     
     if not client_file.exists():
         typer.secho(f"Arquivo de configuração não encontrado: {client_file}", fg=typer.colors.RED)
+        typer.echo("\nDica: O cliente pode ter sido criado pelo módulo 'vpn' (inicial).")
+        typer.echo(f"Verifique se existe: {CLIENTS_DIR}")
         raise typer.Exit(1)
     
     typer.echo(f"\n{'='*60}")
@@ -396,11 +458,37 @@ def show_client_config(ctx: ExecutionContext) -> None:
     
     typer.echo(client_file.read_text())
     
+    # Detecta hostname/IP do servidor
+    import socket
+    hostname = socket.gethostname()
+    
     typer.echo(f"\n{'='*60}")
-    typer.echo("\nPara copiar:")
-    typer.echo(f"  scp root@servidor:{client_file} .")
-    typer.echo("\nPara QR code (mobile):")
-    typer.echo(f"  qrencode -t ansiutf8 {client_file}")
+    typer.secho("COMO COPIAR PARA WINDOWS/MAC/LINUX:", fg=typer.colors.CYAN, bold=True)
+    typer.echo(f"{'='*60}")
+    
+    typer.echo("\n📋 Opção 1 - SCP (requer SSH configurado):")
+    typer.echo(f"   scp usuario@{hostname}:{client_file} .")
+    typer.echo(f"   # ou com IP: scp usuario@SEU_IP:{client_file} .")
+    
+    typer.echo("\n📋 Opção 2 - Copiar conteúdo manualmente:")
+    typer.echo("   1. Copie o texto acima (entre as linhas de '=')")
+    typer.echo(f"   2. No Windows, crie arquivo: {name}.conf")
+    typer.echo("   3. Cole o conteúdo e salve")
+    
+    typer.echo("\n📋 Opção 3 - SFTP (FileZilla, WinSCP):")
+    typer.echo(f"   Conecte no servidor e baixe: {client_file}")
+    
+    typer.echo("\n📱 Para celular (QR Code):")
+    typer.echo(f"   qrencode -t ansiutf8 < {client_file}")
+    
+    typer.echo(f"\n{'='*60}")
+    typer.secho("NO WINDOWS 11:", fg=typer.colors.GREEN, bold=True)
+    typer.echo(f"{'='*60}")
+    typer.echo("   1. Baixe WireGuard: https://www.wireguard.com/install/")
+    typer.echo("   2. Abra WireGuard → 'Import tunnel(s) from file...'")
+    typer.echo(f"   3. Selecione o arquivo {name}.conf")
+    typer.echo("   4. Clique 'Activate' para conectar")
+    typer.echo("")
 
 
 def run(ctx: ExecutionContext) -> None:
