@@ -118,40 +118,78 @@ git commit -m "feat(api)!: change CLI argument format"
 
 ## Criando uma Nova Release
 
-### 1. Atualizar versão
+### Método Automatizado (Recomendado)
+
+O script `release.sh` automatiza todo o processo:
 
 ```bash
-# Editar setup.cfg
-vim setup.cfg
-# Alterar: version = X.Y.Z
-```
-
-### 2. Commit da versão
-
-```bash
-git add setup.cfg
-git commit -m "chore: bump version to X.Y.Z"
-```
-
-### 3. Criar tag anotada
-
-```bash
-git tag -a vX.Y.Z -m "feat: descrição da release"
-```
-
-### 4. Push com tags
-
-```bash
-git push origin master --tags
-```
-
-### 5. Publicar no PyPI
-
-```bash
+# Ativar venv de publicação
 source ~/.venvs/publish/bin/activate
-rm -rf dist build
-python -m build
-./release.sh X.Y.Z
+
+# Release simples
+./release.sh 0.3.1
+
+# Com mensagem personalizada
+./release.sh 0.3.1 -m "feat: add new security module"
+
+# Simular sem executar (dry-run)
+./release.sh 0.3.1 --dry-run
+
+# Apenas local (sem push)
+./release.sh 0.3.1 --no-push
+
+# Apenas git (sem PyPI)
+./release.sh 0.3.1 --no-pypi
+```
+
+**O script executa automaticamente:**
+1. ✅ Valida formato SemVer da versão
+2. ✅ Verifica se tag já existe
+3. ✅ Commita alterações pendentes (com confirmação)
+4. ✅ Atualiza versão em `setup.cfg` e `__init__.py`
+5. ✅ Cria commit de versão
+6. ✅ Cria tag anotada
+7. ✅ Faz push (commits + tags)
+8. ✅ Build do pacote
+9. ✅ Publica no PyPI
+10. ✅ Cria GitHub Release (se `gh` CLI instalado)
+
+### Opções do release.sh
+
+| Opção | Descrição |
+|-------|-----------|
+| `-m, --message <msg>` | Mensagem personalizada da release |
+| `-n, --no-push` | Não fazer push automático |
+| `-p, --no-pypi` | Não publicar no PyPI |
+| `-d, --dry-run` | Simular sem executar |
+| `-h, --help` | Mostrar ajuda |
+
+### Método Manual (se necessário)
+
+```bash
+# 1. Atualizar versão em setup.cfg e __init__.py
+# 2. Commit
+git commit -am "chore: bump version to X.Y.Z"
+# 3. Tag
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+# 4. Push
+git push origin master --tags
+# 5. Build e publicar
+python -m build && python -m twine upload dist/*
+```
+
+### GitHub CLI (Opcional)
+
+Para criar GitHub Releases automaticamente:
+
+```bash
+# Instalar
+sudo apt install gh
+
+# Autenticar
+gh auth login
+
+# O release.sh usará automaticamente
 ```
 
 ## Verificando Tags no GitHub
