@@ -15,6 +15,19 @@ FAIL2BAN_JAIL = Path("/etc/fail2ban/jail.d/raijin-sshd.conf")
 AUTHORIZED_KEYS_TEMPLATE = "# gerenciado pelo raijin-server\n{key}\n"
 
 
+def _current_non_root_user() -> str | None:
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user and sudo_user != "root":
+        return sudo_user
+    try:
+        import getpass
+
+        who = getpass.getuser()
+        return who if who != "root" else None
+    except Exception:
+        return None
+
+
 def _user_exists(username: str) -> bool:
     try:
         pwd.getpwnam(username)
@@ -43,15 +56,27 @@ def _write_authorized_keys(username: str, content: str, ctx: ExecutionContext) -
 
     ssh_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(ssh_dir, 0o700)
-    auth_file.write_text(AUTHORIZED_KEYS_TEMPLATE.format(key=content.strip()))
+    normalized_key = content.replace("\r\n", "\n").strip()  # normaliza CRLF de chaves geradas no Windows
+    auth_file.write_text(AUTHORIZED_KEYS_TEMPLATE.format(key=normalized_key))
     os.chmod(auth_file, 0o600)
     run_cmd(["chown", "-R", f"{username}:{username}", str(ssh_dir)], ctx)
+
+
+def _default_pubkey_path() -> Path:
+    user = _current_non_root_user()
+    if user:
+        candidate = Path(f"/home/{user}/.ssh/authorized_keys")
+        if candidate.exists():
+            return candidate
+    return Path.home() / ".ssh/authorized_keys"
 
 
 def _load_public_key(path_input: str) -> str:
     path = Path(path_input).expanduser()
     if path.exists():
-        return path.read_text().strip()
+        content = path.read_text().strip()
+        if content:
+            return content
     typer.echo("Arquivo nao encontrado. Cole a chave publica completa (ssh-ed25519...).")
     key = typer.prompt("Chave publica", default="")
     if not key:
@@ -66,21 +91,34 @@ def run(ctx: ExecutionContext) -> None:
     typer.echo("Hardening de SSH em andamento...")
     apt_install(["openssh-server", "fail2ban"], ctx)
 
-    username = typer.prompt("Usuario administrativo para SSH", default="adminops")
+    username = typer.prompt("Usuario administrativo para SSH", default="thor")
     ssh_port = typer.prompt("Porta SSH", default="22")
     sudo_access = typer.confirm("Adicionar usuario ao grupo sudo?", default=True)
+    current_user = _current_non_root_user()
+    default_extra = current_user if current_user and current_user != username else ""
+    extra_users_raw = typer.prompt(
+        "Usuarios adicionais (serao criados se nao existirem, separados por espaco)",
+        default=default_extra,
+    ).strip()
     pubkey_path = typer.prompt(
-        "Arquivo com chave publica (ENTER para ~/.ssh/id_ed25519.pub)",
-        default=str(Path.home() / ".ssh/id_ed25519.pub"),
+        "Arquivo com chave publica ou authorized_keys existente",
+        default=str(_default_pubkey_path()),
     )
 
     public_key = _load_public_key(pubkey_path)
 
-    _ensure_user(username, ctx)
-    if sudo_access:
-        run_cmd(["usermod", "-aG", "sudo", username], ctx)
+    extra_users = [u for u in extra_users_raw.split() if u]
+    target_users: list[str] = []
+    for u in [username, *extra_users]:
+        if u not in target_users:
+            target_users.append(u)
+    allow_users = " ".join(target_users)
 
-    _write_authorized_keys(username, public_key, ctx)
+    for user in target_users:
+        _ensure_user(user, ctx)
+        if user == username and sudo_access:
+            run_cmd(["usermod", "-aG", "sudo", user], ctx)
+        _write_authorized_keys(user, public_key, ctx)
 
     config = f"""
 # Arquivo gerenciado pelo raijin-server
@@ -91,7 +129,10 @@ PasswordAuthentication no
 PermitEmptyPasswords no
 ChallengeResponseAuthentication no
 UsePAM yes
-AllowUsers {username}
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile %h/.ssh/authorized_keys
+AllowUsers {allow_users}
 AuthenticationMethods publickey
 X11Forwarding no
 ClientAliveInterval 300
