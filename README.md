@@ -236,6 +236,7 @@ kubectl port-forward svc/grafana -n observability 3000:80
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Arquitetura técnica do ambiente |
 | [SECURITY.md](SECURITY.md) | Políticas de segurança |
 | [AUDIT.md](AUDIT.md) | Relatório de auditoria |
+| [docs/VERSIONING.md](docs/VERSIONING.md) | Versionamento e tags |
 | [docs/INFRASTRUCTURE_GUIDE.md](docs/INFRASTRUCTURE_GUIDE.md) | Guia completo de infraestrutura |
 | [docs/VPN_REMOTE_ACCESS.md](docs/VPN_REMOTE_ACCESS.md) | Configuração de VPN |
 | [docs/INTERNAL_DNS.md](docs/INTERNAL_DNS.md) | DNS interno para domínios privados |
