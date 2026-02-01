@@ -1,5 +1,5 @@
 """Pacote principal do CLI Raijin Server."""
 
-__version__ = "0.2.41"
+__version__ = "0.3.0"
 
 __all__ = ["__version__"]
