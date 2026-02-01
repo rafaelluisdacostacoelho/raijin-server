@@ -13,6 +13,7 @@ CLI em Python (Typer) para automatizar setup e hardening de servidores Ubuntu Se
 - Segurança: [SECURITY.md](SECURITY.md)
 - Acesso SSH (Windows): [docs/SSH_WINDOWS.md](docs/SSH_WINDOWS.md)
 - VPN para acesso remoto (WireGuard): [docs/VPN_REMOTE_ACCESS.md](docs/VPN_REMOTE_ACCESS.md)
+- MinIO (monitorar/testar): [docs/MINIO_OPERATIONS.md](docs/MINIO_OPERATIONS.md)
 
 ## Destaques
 
