@@ -579,6 +579,23 @@ redis:
         cpu: 100m
       limits:
         memory: 256Mi
+
+nginx:
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+  nodeSelector:
+    kubernetes.io/hostname: {node_name}
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
 """
 
     harbor_values_path = Path("/tmp/raijin-harbor-values.yaml")

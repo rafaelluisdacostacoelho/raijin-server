@@ -552,7 +552,11 @@ def _validate_vpn_client() -> ModuleStatus:
 
 
 def _validate_internal_dns() -> ModuleStatus:
-    # Verifica se CoreDNS custom config existe
+    # Verifica se CoreDNS tem configuração de domínio interno (asgard.internal ou similar)
+    ok, out = _quick_cmd(["kubectl", "get", "configmap", "coredns", "-n", "kube-system", "-o", "jsonpath={.data.Corefile}"])
+    if ok and ".internal" in out:
+        return "ok"
+    # Fallback: verifica coredns-custom
     ok, _ = _quick_cmd(["kubectl", "get", "configmap", "coredns-custom", "-n", "kube-system"])
     if ok:
         return "ok"
@@ -682,7 +686,8 @@ def _validate_loki() -> ModuleStatus:
     exists, deployed = _check_helm_deployed("loki", "observability")
     if not exists:
         return "not_installed"
-    ok, out = _quick_cmd(["kubectl", "get", "pods", "-n", "observability", "-l", "app.kubernetes.io/name=loki", "-o", "jsonpath={.items[*].status.phase}"])
+    # Loki usa label "app=loki" (não app.kubernetes.io/name)
+    ok, out = _quick_cmd(["kubectl", "get", "pods", "-n", "observability", "-l", "app=loki", "-o", "jsonpath={.items[*].status.phase}"])
     if ok and out and "Running" in out:
         return "ok"
     return "error"
