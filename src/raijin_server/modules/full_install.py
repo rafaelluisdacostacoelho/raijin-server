@@ -206,12 +206,6 @@ def _diag_minio(ctx: ExecutionContext) -> None:
     _diag_namespace(ns, ctx)
 
 
-def _diag_kafka(ctx: ExecutionContext) -> None:
-    ns = "kafka"
-    _run_cmd("Kafka pods", ["kubectl", "get", "pods", "-n", ns, "-o", "wide"], ctx)
-    _diag_namespace(ns, ctx)
-
-
 def _diag_velero(ctx: ExecutionContext) -> None:
     ns = "velero"
     _diag_namespace(ns, ctx)
@@ -232,7 +226,6 @@ DIAG_HANDLERS = {
     "loki": _diag_loki,
     "traefik": _diag_traefik,
     "minio": _diag_minio,
-    "kafka": _diag_kafka,
     "velero": _diag_velero,
     "kong": _diag_kong,
 }

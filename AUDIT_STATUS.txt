@@ -33,10 +33,10 @@ Todos os módulos abaixo foram auditados e atualizados com:
 ✅ grafana.py       - Dashboards e visualização
 ✅ prometheus.py    - Métricas e alertas
 ✅ loki.py          - Agregação de logs
-✅ kafka.py         - Message broker
 ✅ velero.py        - Backup e restore
 ✅ secrets.py       - Sealed-secrets + External-secrets
 ✅ argo.py          - Argo CD + Argo Workflows (GitOps CI/CD)
+✅ landing.py       - Landing page de teste (acesso público)
 
 ==========================================
 ARQUIVOS CRIADOS

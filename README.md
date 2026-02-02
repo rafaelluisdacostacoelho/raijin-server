@@ -160,13 +160,18 @@ sudo -E ~/.venvs/midgard/bin/raijin-server --dry-run kubernetes
 | `observability-ingress` | Ingress seguro para dashboards |
 | `observability-dashboards` | Dashboards pré-configurados |
 
-### 💾 Storage e Mensageria
+### 💾 Storage e Backup
 
 | Módulo | Descrição |
 |--------|-----------|
 | `minio` | Object storage S3-compatível |
-| `kafka` | Mensageria distribuída |
 | `velero` | Backup e restore do cluster |
+
+### 🌐 Landing Page
+
+| Módulo | Descrição |
+|--------|-----------|
+| `landing` | Landing page de teste para verificar acesso público |
 
 ### 🔒 VPN e Segurança
 

@@ -29,9 +29,9 @@ from raijin_server.modules import (
     hardening,
     internal_dns,
     istio,
-    kafka,
     kong,
     kubernetes,
+    landing,
     loki,
     metallb,
     minio,
@@ -103,8 +103,7 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "harbor": harbor.run,
     "argo": argo.run,
     "velero": velero.run,
-    "kafka": kafka.run,
-    "full_install": full_install.run,
+    "landing": landing.run,
 }
 
 # Rollbacks sao opcionais; por padrao apenas removem marcador de conclusao e avisam
@@ -139,8 +138,7 @@ MODULE_DESCRIPTIONS: Dict[str, str] = {
     "harbor": "Container registry privado com vulnerability scanning",
     "argo": "Argo CD + Argo Workflows (GitOps CI/CD 100% opensource)",
     "velero": "Backup/restore de clusters",
-    "kafka": "Cluster Kafka via OCI Helm",
-    "full_install": "Instalacao completa e automatizada do ambiente",
+    "landing": "Landing page de teste para verificar acesso publico",
 }
 
 
@@ -423,6 +421,13 @@ def interactive_menu(ctx: typer.Context) -> None:
             else:
                 console.print("[red]Opcao invalida[/red]")
                 continue
+        elif choice == "full":
+            # Comando especial para full_install (não aparece no menu)
+            console.print("[cyan]Executando instalação completa...[/cyan]")
+            exec_ctx = ExecutionContext(dry_run=current_dry_run)
+            ctx.obj = exec_ctx
+            full_install.run(exec_ctx)
+            continue
         else:
             name = choice
 
@@ -577,18 +582,13 @@ def loki(ctx: typer.Context) -> None:
 
 
 @app.command()
-def harness(ctx: typer.Context) -> None:
-    _run_module(ctx, "harness")
-
-
-@app.command()
 def velero(ctx: typer.Context) -> None:
     _run_module(ctx, "velero")
 
 
 @app.command()
-def kafka(ctx: typer.Context) -> None:
-    _run_module(ctx, "kafka")
+def landing(ctx: typer.Context) -> None:
+    _run_module(ctx, "landing")
 
 
 @app.command()
@@ -868,11 +868,10 @@ def _register_uninstall_handlers() -> None:
         "prometheus": lambda ctx: prometheus._uninstall_prometheus(ctx, "monitoring"),
         "traefik": traefik._uninstall_traefik,
         "istio": istio._uninstall_istio,
-        "kafka": kafka._uninstall_kafka,
         "cert_manager": cert_manager._uninstall_cert_manager,
         "calico": lambda ctx: _generic_uninstall(ctx, "calico", "calico-system", ["calico"]),
         "secrets": lambda ctx: _uninstall_secrets(ctx),
-        "harness": lambda ctx: harness._uninstall_delegate(ctx, "harness", "harness-delegate"),
+        "landing": landing.uninstall,
     }
     
     module_manager.UNINSTALL_HANDLERS.update(handlers)
