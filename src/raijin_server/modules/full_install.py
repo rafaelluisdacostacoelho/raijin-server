@@ -15,6 +15,7 @@ from raijin_server.modules import (
     essentials,
     firewall,
     grafana,
+    harbor,
     hardening,
     kubernetes,
     loki,
@@ -169,6 +170,13 @@ def _diag_secrets(ctx: ExecutionContext) -> None:
     _diag_namespace("external-secrets", ctx)
 
 
+def _diag_harbor(ctx: ExecutionContext) -> None:
+    """Diagnostico do namespace harbor."""
+    ns = "harbor"
+    _run_cmd("Harbor pods", ["kubectl", "get", "pods", "-n", ns, "-o", "wide"], ctx)
+    _diag_namespace(ns, ctx)
+
+
 def _diag_prometheus(ctx: ExecutionContext) -> None:
     ns = "observability"
     _run_cmd("Prometheus pods", ["kubectl", "get", "pods", "-n", ns, "-l", "app.kubernetes.io/name=prometheus"], ctx)
@@ -218,6 +226,7 @@ DIAG_HANDLERS = {
     "cert_manager": cert_manager.diagnose,
     "calico": _diag_calico,
     "secrets": _diag_secrets,
+    "harbor": _diag_harbor,
     "prometheus": _diag_prometheus,
     "grafana": _diag_grafana,
     "loki": _diag_loki,
@@ -257,7 +266,8 @@ INSTALL_SEQUENCE = [
     ("kubernetes", kubernetes.run, "Cluster Kubernetes (kubeadm)", None),
     ("calico", calico.run, "CNI Calico + NetworkPolicy", None),
     ("cert_manager", _cert_manager_install_only, "cert-manager (instalacao base)", None),
-    ("secrets", secrets.run, "Sealed-Secrets + External-Secrets", None),
+    ("secrets", secrets.run, "HashiCorp Vault + External Secrets Operator", None),
+    ("harbor", harbor.run, "Container Registry com Vulnerability Scanning", None),
     ("prometheus", prometheus.run, "Monitoramento Prometheus", None),
     ("grafana", grafana.run, "Dashboards Grafana", None),
     ("loki", loki.run, "Logs centralizados Loki", None),

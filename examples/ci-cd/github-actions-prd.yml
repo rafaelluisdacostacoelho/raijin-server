@@ -1,0 +1,312 @@
+# GitHub Actions Pipeline - PRD Environment
+# Triggered on push to main/master branch
+# Requires manual approval before deployment
+
+name: CI/CD - PRD (Production)
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  HARBOR_REGISTRY: 192.168.1.81:30880
+  HARBOR_PROJECT: prd
+  IMAGE_NAME: myapp
+  K8S_NAMESPACE: prd
+
+jobs:
+  security-scan:
+    name: Security Scanning (Semgrep) - BLOCKING
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Semgrep SAST Scan
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: auto  # security, best-practices rules
+          # exit-code 1 if vulnerabilities found (BLOCKING for PRD)
+        
+      - name: Custom Semgrep rules
+        run: |
+          # Run custom security rules
+          semgrep --config .semgrep/rules/ src/
+      
+      - name: Upload Semgrep results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+      
+      - name: Run unit tests
+        run: |
+          pytest tests/unit/ --cov=. --cov-report=xml --cov-report=term --cov-fail-under=80
+      
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ -v
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: true  # Fail if coverage < threshold
+
+  build-and-push:
+    name: Build and Push to Harbor
+    needs: [security-scan, test]
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Login to Harbor
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_ROBOT_ACCOUNT }}
+          password: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=prod-
+            type=raw,value=latest
+            type=raw,value=stable
+      
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true  # SBOM for supply chain security
+          sbom: true
+      
+      - name: Install Trivy
+        run: |
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update && sudo apt-get install trivy
+      
+      - name: Trivy image scan (BLOCKING on CRITICAL)
+        run: |
+          trivy image \
+            --severity CRITICAL \
+            --exit-code 1 \
+            --format json \
+            --output trivy-report.json \
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }}
+      
+      - name: Verify Harbor scan passed
+        run: |
+          # Wait for Harbor to scan the image
+          sleep 60
+          
+          # Check if Harbor blocked the image (if scan found critical vulns)
+          # This is a placeholder - adjust to your Harbor API
+          echo "Checking Harbor scan results..."
+      
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: trivy-report.json
+      
+      - name: Sign image (optional - Cosign)
+        run: |
+          # If using Sigstore/Cosign for image signing
+          # cosign sign --key ${{ secrets.COSIGN_KEY }} \
+          #   ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          echo "Image signing skipped (configure Cosign if needed)"
+
+  approval:
+    name: Manual Approval Required
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://myapp.asgard.com
+    steps:
+      - name: Wait for approval
+        run: |
+          echo "⏸️  Waiting for manual approval to deploy to production..."
+          echo "Image: prod-${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.event.head_commit.message }}"
+
+  deploy:
+    name: Deploy to K8s PRD (Blue-Green)
+    needs: approval
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+      
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+      
+      - name: Deploy green (new version)
+        run: |
+          # Create green deployment (new version)
+          kubectl apply -f k8s/deployment-green.yaml \
+            -n ${{ env.K8S_NAMESPACE }}
+          
+          # Update image
+          kubectl set image deployment/${{ env.IMAGE_NAME }}-green \
+            ${{ env.IMAGE_NAME }}=${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }} \
+            -n ${{ env.K8S_NAMESPACE }}
+          
+          # Wait for green to be ready
+          kubectl rollout status deployment/${{ env.IMAGE_NAME }}-green \
+            -n ${{ env.K8S_NAMESPACE }} \
+            --timeout=10m
+      
+      - name: Integration tests on green
+        run: |
+          # Test green deployment via internal service
+          SERVICE_URL="http://${{ env.IMAGE_NAME }}-green.${{ env.K8S_NAMESPACE }}.svc.cluster.local"
+          
+          # Health check
+          response=$(curl -s -o /dev/null -w "%{http_code}" $SERVICE_URL/health)
+          if [ "$response" != "200" ]; then
+            echo "❌ Health check failed: HTTP $response"
+            exit 1
+          fi
+          
+          # API tests
+          ./scripts/integration-tests.sh $SERVICE_URL
+          
+          echo "✅ Integration tests passed on green deployment"
+      
+      - name: Switch traffic to green (zero-downtime)
+        run: |
+          # Update service selector to point to green
+          kubectl patch service ${{ env.IMAGE_NAME }} \
+            -n ${{ env.K8S_NAMESPACE }} \
+            -p '{"spec":{"selector":{"version":"green"}}}'
+          
+          echo "✅ Traffic switched to green deployment"
+      
+      - name: Monitor new deployment
+        run: |
+          # Wait and monitor metrics
+          sleep 120
+          
+          # Check error rate, latency (placeholder - integrate with Prometheus)
+          echo "Monitoring metrics for 2 minutes..."
+          
+          # If metrics look good, proceed to cleanup blue
+      
+      - name: Cleanup old blue deployment
+        run: |
+          # Scale down blue (old version)
+          kubectl scale deployment/${{ env.IMAGE_NAME }}-blue --replicas=0 \
+            -n ${{ env.K8S_NAMESPACE }} || true
+          
+          echo "✅ Old blue deployment scaled down (kept for rollback)"
+      
+      - name: Create Git tag
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          VERSION="v$(date +%Y.%m.%d)-${{ github.run_number }}"
+          git tag -a $VERSION -m "Production release $VERSION"
+          git push origin $VERSION
+
+  smoke-tests:
+    name: Production Smoke Tests
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: External smoke tests
+        run: |
+          # Test public URL
+          SERVICE_URL="https://myapp.asgard.com"
+          
+          # Health check
+          response=$(curl -s -o /dev/null -w "%{http_code}" $SERVICE_URL/health)
+          if [ "$response" != "200" ]; then
+            echo "❌ Public health check failed: HTTP $response"
+            exit 1
+          fi
+          
+          # Critical user flows
+          ./scripts/smoke-tests.sh $SERVICE_URL
+          
+          echo "✅ Production smoke tests passed"
+      
+      - name: Verify monitoring
+        run: |
+          # Check Prometheus metrics
+          echo "Verifying monitoring data..."
+          
+          # Check Grafana dashboards (optional)
+          # curl -H "Authorization: Bearer ${{ secrets.GRAFANA_API_KEY }}" \
+          #   "http://192.168.1.81:30300/api/dashboards/uid/myapp"
+
+  notify:
+    name: Notify
+    needs: [smoke-tests]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Slack notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            🚀 Production Deploy ${{ job.status }}
+            Image: prod-${{ github.sha }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.event.head_commit.message }}
+            URL: https://myapp.asgard.com
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        if: always()
+      
+      - name: Create incident if failed
+        if: failure()
+        run: |
+          # Create PagerDuty/Opsgenie incident (placeholder)
+          echo "❌ Production deployment failed - creating incident"
+          # curl -X POST https://events.pagerduty.com/v2/enqueue \
+          #   -H "Content-Type: application/json" \
+          #   -d '{"routing_key":"${{ secrets.PAGERDUTY_KEY }}","event_action":"trigger",...}'

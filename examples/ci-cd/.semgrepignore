@@ -1,0 +1,64 @@
+# .semgrepignore
+# Files and directories to exclude from Semgrep scans
+
+# Dependencies
+node_modules/
+vendor/
+venv/
+.venv/
+env/
+.env/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Test files (optional - you may want to scan tests)
+# tests/
+# *_test.py
+# test_*.py
+
+# Generated code
+*.pb.go
+*.generated.*
+*_pb2.py
+
+# Minified/compiled files
+*.min.js
+*.min.css
+*.bundle.js
+
+# Documentation
+docs/
+*.md
+*.txt
+
+# Config files (optional)
+# *.json
+# *.yaml
+# *.yml
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# CI/CD artifacts
+.github/
+.gitlab-ci.yml
+
+# Third-party
+third_party/
+external/
+
+# Specific paths to ignore
+examples/
+scripts/checklist.sh
+scripts/install.sh

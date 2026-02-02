@@ -1,0 +1,418 @@
+# Harness Pipeline - TST Environment
+# Triggered on push to develop branch
+# Free/Community Harness with GitHub integration
+#
+# IMPORTANTE: Este é um TEMPLATE de exemplo
+# Substitua 'myapp' pelo nome real da sua aplicação
+# Ajuste URLs, namespaces e paths conforme seu ambiente
+
+pipeline:
+  name: CI/CD TST (Staging)
+  identifier: cicd_tst
+  projectIdentifier: asgard_project
+  orgIdentifier: default
+  
+  tags:
+    environment: tst
+    project: myapp
+  
+  properties:
+    ci:
+      codebase:
+        connectorRef: github_connector
+        repoName: myorg/myapp
+        build:
+          type: branch
+          spec:
+            branch: develop
+  
+  stages:
+    # Stage 1: Security Scanning
+    - stage:
+        name: Security Scan
+        identifier: security_scan
+        type: CI
+        spec:
+          cloneCodebase: true
+          execution:
+            steps:
+              # Semgrep SAST - Warning only for TST
+              - step:
+                  type: Run
+                  name: Semgrep SAST Scan
+                  identifier: semgrep_scan
+                  spec:
+                    connectorRef: kubernetes_delegate
+                    image: semgrep/semgrep:latest
+                    shell: Sh
+                    command: |
+                      echo "Running Semgrep security scan..."
+                      
+                      # Run auto rules (security + best practices)
+                      semgrep --config=auto --json --output=semgrep.json src/ || true
+                      
+                      # Run custom rules if available
+                      if [ -f ".semgrep/rules/security.yml" ]; then
+                        semgrep --config=.semgrep/rules/ --json --output=semgrep-custom.json src/ || true
+                      fi
+                      
+                      # Display results (warning only, don't fail)
+                      semgrep --config=auto src/ || echo "⚠️ Semgrep found issues (TST - warning only)"
+                    
+                    reports:
+                      type: JUnit
+                      spec:
+                        paths:
+                          - semgrep.json
+                  
+                  failureStrategies:
+                    - onFailure:
+                        errors:
+                          - AllErrors
+                        action:
+                          type: Ignore  # Continue on error for TST
+    
+    # Stage 2: Tests
+    - stage:
+        name: Tests
+        identifier: tests
+        type: CI
+        spec:
+          cloneCodebase: true
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Unit Tests
+                  identifier: unit_tests
+                  spec:
+                    connectorRef: kubernetes_delegate
+                    image: python:3.11-slim
+                    shell: Sh
+                    command: |
+                      echo "Installing dependencies..."
+                      pip install -r requirements.txt
+                      pip install pytest pytest-cov
+                      
+                      echo "Running unit tests..."
+                      pytest tests/ --cov=. --cov-report=xml --cov-report=term
+                    
+                    reports:
+                      type: JUnit
+                      spec:
+                        paths:
+                          - coverage.xml
+              
+              - step:
+                  type: Run
+                  name: Code Quality
+                  identifier: code_quality
+                  spec:
+                    connectorRef: kubernetes_delegate
+                    image: python:3.11-slim
+                    shell: Sh
+                    command: |
+                      pip install pylint flake8
+                      
+                      # Linting (warning only)
+                      flake8 src/ --max-line-length=120 || true
+                      pylint src/ || true
+    
+    # Stage 3: Build & Push
+    - stage:
+        name: Build and Push
+        identifier: build_push
+        type: CI
+        spec:
+          cloneCodebase: true
+          execution:
+            steps:
+              # Build Docker image
+              - step:
+                  type: BuildAndPushDockerRegistry
+                  name: Build and Push to Harbor
+                  identifier: build_push_harbor
+                  spec:
+                    connectorRef: harbor_connector
+                    repo: 192.168.1.81:30880/tst/myapp
+                    tags:
+                      - dev-<+pipeline.sequenceId>
+                      - dev-<+codebase.commitSha>
+                      - develop
+                    dockerfile: Dockerfile
+                    context: .
+                    buildArgs:
+                      ENV: tst
+                      VERSION: <+pipeline.sequenceId>
+              
+              # Trivy scan - Warning only for TST
+              - step:
+                  type: Run
+                  name: Trivy Container Scan
+                  identifier: trivy_scan
+                  spec:
+                    connectorRef: kubernetes_delegate
+                    image: aquasec/trivy:latest
+                    shell: Sh
+                    command: |
+                      echo "Scanning image for vulnerabilities..."
+                      
+                      trivy image \
+                        --severity HIGH,CRITICAL \
+                        --exit-code 0 \
+                        --format json \
+                        --output trivy-report.json \
+                        192.168.1.81:30880/tst/myapp:dev-<+pipeline.sequenceId>
+                      
+                      echo "⚠️ Trivy scan completed (TST - warning only)"
+                      
+                      # Display summary
+                      trivy image \
+                        --severity HIGH,CRITICAL \
+                        192.168.1.81:30880/tst/myapp:dev-<+pipeline.sequenceId> || true
+                  
+                  failureStrategies:
+                    - onFailure:
+                        errors:
+                          - AllErrors
+                        action:
+                          type: Ignore
+    
+    # Stage 4: Deploy to TST
+    - stage:
+        name: Deploy to TST
+        identifier: deploy_tst
+        type: Deployment
+        spec:
+          deploymentType: Kubernetes
+          service:
+            serviceRef: myapp_tst
+            serviceInputs:
+              serviceDefinition:
+                type: Kubernetes
+                spec:
+                  artifacts:
+                    primary:
+                      primaryArtifactRef: harbor_tst_image
+                      sources:
+                        - identifier: harbor_tst_image
+                          type: DockerRegistry
+                          spec:
+                            tag: dev-<+pipeline.sequenceId>
+          
+          environment:
+            environmentRef: tst
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: tst_k8s_infra
+          
+          execution:
+            steps:
+              - step:
+                  type: K8sRollingDeploy
+                  name: Rolling Deployment
+                  identifier: rolling_deploy
+                  spec:
+                    skipDryRun: false
+                    pruningEnabled: false
+              
+              - step:
+                  type: K8sRollingRollback
+                  name: Rollback on Failure
+                  identifier: rollback
+                  when:
+                    stageStatus: Failure
+              
+              - step:
+                  type: ShellScript
+                  name: Smoke Tests
+                  identifier: smoke_tests
+                  spec:
+                    shell: Bash
+                    onDelegate: true
+                    source:
+                      type: Inline
+                      spec:
+                        script: |
+                          #!/bin/bash
+                          set -e
+                          
+                          echo "Running smoke tests..."
+                          sleep 30  # Wait for service to stabilize
+                          
+                          # Health check
+                          SERVICE_URL="http://myapp.tst.svc.cluster.local:8080"
+                          response=$(curl -s -o /dev/null -w "%{http_code}" $SERVICE_URL/health)
+                          
+                          if [ "$response" != "200" ]; then
+                            echo "❌ Health check failed: HTTP $response"
+                            exit 1
+                          fi
+                          
+                          echo "✅ Smoke tests passed"
+                    
+                    timeout: 5m
+            
+            rollbackSteps:
+              - step:
+                  type: K8sRollingRollback
+                  name: Rollback Deployment
+                  identifier: rollback_deployment
+  
+  # Notification settings
+  notificationRules:
+    - name: Pipeline Notification
+      identifier: pipeline_notification
+      pipelineEvents:
+        - type: PipelineSuccess
+        - type: PipelineFailed
+      notificationMethod:
+        type: Slack
+        spec:
+          userGroups: []
+          webhookUrl: <+secrets.getValue("slack_webhook")>
+      enabled: true
+
+# ============================================================
+# SERVICE DEFINITION - Exemplo/Template
+# ============================================================
+# Esta seção define o Service no Harness.
+# CUSTOMIZE: Substitua 'myapp' pelo nome da sua aplicação
+# e ajuste paths dos manifestos K8s conforme seu repositório.
+#
+# Exemplo: se sua app é 'backend-api', renomeie para:
+#   - identifier: backend_api_tst
+#   - name: backend-api-tst
+#   - paths: k8s/tst/backend-api/
+# ============================================================
+---
+service:
+  name: myapp-tst
+  identifier: myapp_tst
+  serviceDefinition:
+    type: Kubernetes
+    spec:
+      manifests:
+        - manifest:
+            identifier: k8s_manifests
+            type: K8sManifest
+            spec:
+              store:
+                type: Github
+                spec:
+                  connectorRef: github_connector
+                  gitFetchType: Branch
+                  branch: develop
+                  paths:
+                    - k8s/tst/
+              valuesPaths:
+                - k8s/tst/values.yaml
+              skipResourceVersioning: false
+      
+      artifacts:
+        primary:
+          primaryArtifactRef: harbor_tst_image
+          sources:
+            - identifier: harbor_tst_image
+              type: DockerRegistry
+              spec:
+                connectorRef: harbor_connector
+                imagePath: 192.168.1.81:30880/tst/myapp
+                tag: <+input>
+      
+      variables:
+        - name: NAMESPACE
+          type: String
+          value: tst
+        - name: REPLICAS
+          type: String
+          value: "2"
+        - name: ENV
+          type: String
+          value: staging
+
+# ============================================================
+# ENVIRONMENT DEFINITION - Template
+# ============================================================
+# Define o ambiente TST (staging) no Harness.
+# Esta seção é reutilizável para múltiplas aplicações.
+# Ajuste apenas se precisar de variáveis específicas.
+# ============================================================
+---
+environment:
+  name: TST
+  identifier: tst
+  type: PreProduction
+  tags:
+    environment: staging
+  variables:
+    - name: NAMESPACE
+      type: String
+      value: tst
+    - name: HARBOR_PROJECT
+      type: String
+      value: tst
+  
+  infrastructureDefinitions:
+    - identifier: tst_k8s_infra
+      name: TST Kubernetes Cluster
+      type: KubernetesDirect
+      spec:
+        connectorRef: kubernetes_delegate
+        namespace: tst
+        releaseName: myapp
+
+# ============================================================
+# CONNECTORS - Configuração (criar uma vez no Harness)
+# ============================================================
+# Estes connectors são criados UMA VEZ no Harness UI e
+# reutilizados por todos os pipelines.
+# Os exemplos abaixo são apenas referência de como configurar.
+# ============================================================
+---
+# GitHub Connector
+connector:
+  name: GitHub Connector
+  identifier: github_connector
+  type: Github
+  spec:
+    url: https://github.com/myorg
+    authentication:
+      type: Http
+      spec:
+        type: UsernameToken
+        spec:
+          username: myuser
+          tokenRef: github_token  # Store in Harness secrets or Vault
+    apiAccess:
+      type: Token
+      spec:
+        tokenRef: github_token
+
+# Harbor Connector
+---
+connector:
+  name: Harbor Registry
+  identifier: harbor_connector
+  type: DockerRegistry
+  spec:
+    dockerRegistryUrl: https://192.168.1.81:30880
+    providerType: Other
+    auth:
+      type: UsernamePassword
+      spec:
+        username: robot$tst+ci
+        passwordRef: harbor_robot_password  # From Vault via ESO
+
+# Kubernetes Delegate Connector
+---
+connector:
+  name: Kubernetes Delegate
+  identifier: kubernetes_delegate
+  type: KubernetesDirect
+  spec:
+    credential:
+      type: InheritFromDelegate
+      spec:
+        delegateSelectors:
+          - asgard-k8s-delegate

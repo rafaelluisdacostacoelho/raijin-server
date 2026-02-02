@@ -1,0 +1,183 @@
+# GitHub Actions Pipeline - TST Environment
+# Triggered on push to develop branch
+
+name: CI/CD - TST (Staging)
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+env:
+  HARBOR_REGISTRY: 192.168.1.81:30880
+  HARBOR_PROJECT: tst
+  IMAGE_NAME: myapp
+  K8S_NAMESPACE: tst
+
+jobs:
+  security-scan:
+    name: Security Scanning (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Semgrep SAST Scan
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: auto  # security, best-practices rules
+        continue-on-error: true  # Warning only for TST
+      
+      - name: Upload Semgrep results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+      
+      - name: Run tests
+        run: |
+          pytest --cov=. --cov-report=xml --cov-report=term
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
+
+  build-and-push:
+    name: Build and Push to Harbor
+    needs: [security-scan, test]
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Login to Harbor
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch,prefix=dev-
+            type=sha,prefix=dev-
+            type=raw,value=develop
+      
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Install Trivy
+        run: |
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update && sudo apt-get install trivy
+      
+      - name: Trivy image scan (warning only)
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            --format json \
+            --output trivy-report.json \
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
+        continue-on-error: true
+      
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: trivy-report.json
+
+  deploy:
+    name: Deploy to K8s TST
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+      
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+      
+      - name: Update deployment image
+        run: |
+          kubectl set image deployment/${{ env.IMAGE_NAME }} \
+            ${{ env.IMAGE_NAME }}=${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }} \
+            -n ${{ env.K8S_NAMESPACE }}
+      
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/${{ env.IMAGE_NAME }} \
+            -n ${{ env.K8S_NAMESPACE }} \
+            --timeout=5m
+      
+      - name: Smoke test
+        run: |
+          # Wait for service to be ready
+          sleep 30
+          
+          # Get service URL (adjust based on your setup)
+          SERVICE_URL="http://myapp.tst.asgard.internal"
+          
+          # Health check
+          response=$(curl -s -o /dev/null -w "%{http_code}" $SERVICE_URL/health)
+          if [ "$response" != "200" ]; then
+            echo "❌ Smoke test failed: HTTP $response"
+            exit 1
+          fi
+          
+          echo "✅ Smoke test passed"
+  
+  notify:
+    name: Notify
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Slack notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            TST Deploy ${{ job.status }}
+            Image: dev-${{ github.sha }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.event.head_commit.message }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        if: always()

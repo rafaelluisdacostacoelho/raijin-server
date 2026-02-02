@@ -1,0 +1,314 @@
+# Custom Semgrep Security Rules
+# Place in .semgrep/rules/ directory
+#
+# Run with: semgrep --config .semgrep/rules/ src/
+
+rules:
+  # Detect hardcoded secrets
+  - id: hardcoded-password
+    patterns:
+      - pattern-either:
+          - pattern: password = "..."
+          - pattern: PASSWORD = "..."
+          - pattern: pwd = "..."
+          - pattern: secret = "..."
+          - pattern: SECRET = "..."
+          - pattern: api_key = "..."
+          - pattern: API_KEY = "..."
+          - pattern: token = "..."
+          - pattern: TOKEN = "..."
+      - pattern-not: password = ""
+      - pattern-not: password = "TODO"
+      - pattern-not: password = "CHANGEME"
+    message: |
+      Hardcoded secret detected. Use environment variables or secrets management (Vault/ESO).
+      
+      Bad:  password = "mysecretpass123"
+      Good: password = os.getenv("DB_PASSWORD")
+    severity: ERROR
+    languages: [python, javascript, typescript, go]
+    metadata:
+      category: security
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      owasp: "A07:2021 - Identification and Authentication Failures"
+
+  # SQL Injection - Python
+  - id: sql-injection-python
+    patterns:
+      - pattern-either:
+          - pattern: cursor.execute(f"... {$VAR} ...")
+          - pattern: cursor.execute("..." + $VAR + "...")
+          - pattern: cursor.execute("..." % $VAR)
+    message: |
+      Potential SQL injection vulnerability. Use parameterized queries.
+      
+      Bad:  cursor.execute(f"SELECT * FROM users WHERE id = {user_id}")
+      Good: cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"
+
+  # Command Injection - Python
+  - id: command-injection-python
+    patterns:
+      - pattern-either:
+          - pattern: os.system(f"... {$VAR} ...")
+          - pattern: os.popen(f"... {$VAR} ...")
+          - pattern: subprocess.call(f"... {$VAR} ...", shell=True)
+          - pattern: subprocess.run(f"... {$VAR} ...", shell=True)
+    message: |
+      Potential command injection vulnerability. Avoid shell=True with user input.
+      
+      Bad:  subprocess.run(f"ls {user_dir}", shell=True)
+      Good: subprocess.run(["ls", user_dir], shell=False)
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-78: OS Command Injection"
+      owasp: "A03:2021 - Injection"
+
+  # Path Traversal
+  - id: path-traversal
+    patterns:
+      - pattern-either:
+          - pattern: open($PATH + $USER_INPUT, ...)
+          - pattern: open(f"... {$USER_INPUT} ...", ...)
+    message: |
+      Potential path traversal vulnerability. Validate and sanitize file paths.
+      
+      Bad:  open(f"/data/{user_file}")
+      Good: os.path.join("/data", os.path.basename(user_file))
+    severity: WARNING
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-22: Path Traversal"
+      owasp: "A01:2021 - Broken Access Control"
+
+  # Insecure Random
+  - id: insecure-random
+    patterns:
+      - pattern: random.random()
+      - pattern: random.randint(...)
+      - pattern: random.choice(...)
+    message: |
+      Using insecure random for security purposes. Use secrets module.
+      
+      Bad:  token = random.randint(1000, 9999)
+      Good: token = secrets.randbelow(10000)
+    severity: WARNING
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-330: Use of Insufficiently Random Values"
+
+  # Missing Authentication Decorator
+  - id: missing-auth-flask
+    patterns:
+      - pattern: |
+          @app.route(...)
+          def $FUNC(...):
+              ...
+      - pattern-not: |
+          @login_required
+          @app.route(...)
+          def $FUNC(...):
+              ...
+      - pattern-not: |
+          @app.route("/public/...")
+          def $FUNC(...):
+              ...
+      - pattern-not: |
+          @app.route("/health")
+          def $FUNC(...):
+              ...
+    message: |
+      Flask route missing authentication decorator. Add @login_required or similar.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-306: Missing Authentication"
+
+  # Unsafe YAML Load
+  - id: unsafe-yaml-load
+    patterns:
+      - pattern: yaml.load($DATA, ...)
+      - pattern-not: yaml.load($DATA, Loader=yaml.SafeLoader)
+    message: |
+      Unsafe YAML deserialization. Use yaml.safe_load() instead.
+      
+      Bad:  yaml.load(user_data)
+      Good: yaml.safe_load(user_data)
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+
+  # Debug Mode in Production
+  - id: debug-mode-production
+    patterns:
+      - pattern-either:
+          - pattern: app.run(debug=True)
+          - pattern: DEBUG = True
+    message: |
+      Debug mode should never be enabled in production.
+      
+      Use environment variables:
+      DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-489: Debug Mode Enabled"
+
+  # Kubernetes Secret in Code
+  - id: kubernetes-secret-hardcoded
+    patterns:
+      - pattern-inside: |
+          apiVersion: v1
+          kind: Secret
+          ...
+      - pattern: |
+          data:
+            $KEY: $VALUE
+      - metavariable-pattern:
+          metavariable: $VALUE
+          pattern: "..."
+    message: |
+      Kubernetes Secret with hardcoded data. Use sealed-secrets, ESO, or Vault.
+      
+      Bad:  data: { password: bXlwYXNzd29yZA== }
+      Good: Use ExternalSecret from Vault
+    severity: ERROR
+    languages: [yaml]
+    metadata:
+      category: security
+      technology: kubernetes
+
+  # Missing Resource Limits (Kubernetes)
+  - id: missing-resource-limits-k8s
+    patterns:
+      - pattern-inside: |
+          apiVersion: apps/v1
+          kind: Deployment
+          ...
+      - pattern-not-inside: |
+          resources:
+            limits:
+              ...
+    message: |
+      Kubernetes deployment missing resource limits. Can cause resource exhaustion.
+      
+      Add:
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 250m
+          memory: 256Mi
+    severity: WARNING
+    languages: [yaml]
+    metadata:
+      category: best-practice
+      technology: kubernetes
+
+  # Exposed Environment Variables
+  - id: exposed-env-vars
+    patterns:
+      - pattern-either:
+          - pattern: |
+              env:
+                - name: PASSWORD
+                  value: ...
+          - pattern: |
+              env:
+                - name: SECRET
+                  value: ...
+          - pattern: |
+              env:
+                - name: API_KEY
+                  value: ...
+    message: |
+      Sensitive environment variable exposed in plain text. Use secrets.
+      
+      Bad:
+      env:
+        - name: DB_PASSWORD
+          value: "secret123"
+      
+      Good:
+      env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: password
+    severity: ERROR
+    languages: [yaml]
+    metadata:
+      category: security
+      technology: kubernetes
+
+  # Logging Sensitive Data
+  - id: logging-sensitive-data
+    patterns:
+      - pattern-either:
+          - pattern: logging.$METHOD(f"... password: {$VAR} ...")
+          - pattern: logging.$METHOD(f"... token: {$VAR} ...")
+          - pattern: logging.$METHOD(f"... secret: {$VAR} ...")
+          - pattern: print(f"... password: {$VAR} ...")
+    message: |
+      Logging sensitive data (password, token, secret). Redact before logging.
+      
+      Bad:  logging.info(f"User login: {username}, password: {password}")
+      Good: logging.info(f"User login: {username}")
+    severity: WARNING
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-532: Information Exposure Through Log Files"
+
+  # Insecure TLS/SSL
+  - id: insecure-tls-verification
+    patterns:
+      - pattern-either:
+          - pattern: requests.get(..., verify=False)
+          - pattern: requests.post(..., verify=False)
+          - pattern: urllib3.disable_warnings()
+          - pattern: ssl._create_unverified_context()
+    message: |
+      Insecure TLS verification disabled. Enables MITM attacks.
+      
+      Bad:  requests.get(url, verify=False)
+      Good: requests.get(url, verify=True)  # or verify="/path/to/ca-bundle.crt"
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-295: Certificate Validation"
+      owasp: "A02:2021 - Cryptographic Failures"
+
+  # Weak Cryptography
+  - id: weak-cryptography
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.sha1(...)
+    message: |
+      Weak cryptographic algorithm (MD5/SHA1). Use SHA256 or better.
+      
+      Bad:  hashlib.md5(data.encode()).hexdigest()
+      Good: hashlib.sha256(data.encode()).hexdigest()
+    severity: WARNING
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-327: Broken or Risky Crypto Algorithm"
+      owasp: "A02:2021 - Cryptographic Failures"
