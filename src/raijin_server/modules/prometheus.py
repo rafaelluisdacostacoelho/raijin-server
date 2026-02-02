@@ -442,31 +442,42 @@ def run(ctx: ExecutionContext) -> None:
         "prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false",
         "prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false",
         "defaultRules.create=true",
-        # Tolerations for control-plane nodes
+        # Tolerations for control-plane nodes - Prometheus
         "prometheus.prometheusSpec.tolerations[0].key=node-role.kubernetes.io/control-plane",
         "prometheus.prometheusSpec.tolerations[0].operator=Exists",
         "prometheus.prometheusSpec.tolerations[0].effect=NoSchedule",
         "prometheus.prometheusSpec.tolerations[1].key=node-role.kubernetes.io/master",
         "prometheus.prometheusSpec.tolerations[1].operator=Exists",
         "prometheus.prometheusSpec.tolerations[1].effect=NoSchedule",
+        # Tolerations - Alertmanager
         "alertmanager.alertmanagerSpec.tolerations[0].key=node-role.kubernetes.io/control-plane",
         "alertmanager.alertmanagerSpec.tolerations[0].operator=Exists",
         "alertmanager.alertmanagerSpec.tolerations[0].effect=NoSchedule",
         "alertmanager.alertmanagerSpec.tolerations[1].key=node-role.kubernetes.io/master",
         "alertmanager.alertmanagerSpec.tolerations[1].operator=Exists",
         "alertmanager.alertmanagerSpec.tolerations[1].effect=NoSchedule",
+        # Tolerations - Prometheus Operator
         "prometheusOperator.tolerations[0].key=node-role.kubernetes.io/control-plane",
         "prometheusOperator.tolerations[0].operator=Exists",
         "prometheusOperator.tolerations[0].effect=NoSchedule",
         "prometheusOperator.tolerations[1].key=node-role.kubernetes.io/master",
         "prometheusOperator.tolerations[1].operator=Exists",
         "prometheusOperator.tolerations[1].effect=NoSchedule",
+        # Tolerations - Admission Webhooks (Jobs que criam/atualizam webhooks)
+        "prometheusOperator.admissionWebhooks.patch.tolerations[0].key=node-role.kubernetes.io/control-plane",
+        "prometheusOperator.admissionWebhooks.patch.tolerations[0].operator=Exists",
+        "prometheusOperator.admissionWebhooks.patch.tolerations[0].effect=NoSchedule",
+        "prometheusOperator.admissionWebhooks.patch.tolerations[1].key=node-role.kubernetes.io/master",
+        "prometheusOperator.admissionWebhooks.patch.tolerations[1].operator=Exists",
+        "prometheusOperator.admissionWebhooks.patch.tolerations[1].effect=NoSchedule",
+        # Tolerations - kube-state-metrics
         "kube-state-metrics.tolerations[0].key=node-role.kubernetes.io/control-plane",
         "kube-state-metrics.tolerations[0].operator=Exists",
         "kube-state-metrics.tolerations[0].effect=NoSchedule",
         "kube-state-metrics.tolerations[1].key=node-role.kubernetes.io/master",
         "kube-state-metrics.tolerations[1].operator=Exists",
         "kube-state-metrics.tolerations[1].effect=NoSchedule",
+        # Tolerations - node-exporter
         "prometheus-node-exporter.tolerations[0].key=node-role.kubernetes.io/control-plane",
         "prometheus-node-exporter.tolerations[0].operator=Exists",
         "prometheus-node-exporter.tolerations[0].effect=NoSchedule",
