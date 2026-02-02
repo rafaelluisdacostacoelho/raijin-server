@@ -494,6 +494,152 @@ def show_client_config(ctx: ExecutionContext) -> None:
     typer.echo("")
 
 
+def verify_config(ctx: ExecutionContext) -> None:
+    """Verifica se a configuração do WireGuard está correta."""
+    require_root(ctx)
+    
+    typer.secho("\n🔍 Verificação de Configuração WireGuard", fg=typer.colors.CYAN, bold=True)
+    typer.echo("="*60)
+    
+    errors = []
+    warnings = []
+    
+    # 1. Verificar se arquivo existe
+    if not WG0_CONF.exists():
+        typer.secho("✗ Arquivo wg0.conf não encontrado!", fg=typer.colors.RED)
+        typer.echo("  Execute 'raijin vpn' primeiro para configurar o servidor.")
+        return
+    
+    content = WG0_CONF.read_text()
+    typer.secho("✓ Arquivo wg0.conf encontrado", fg=typer.colors.GREEN)
+    
+    # 2. Verificar [Interface]
+    typer.echo("\n📋 Verificando [Interface]...")
+    
+    if "[Interface]" not in content:
+        errors.append("Falta seção [Interface] no arquivo!")
+    else:
+        typer.secho("  ✓ Seção [Interface] presente", fg=typer.colors.GREEN)
+    
+    # 3. Verificar ListenPort
+    port_match = re.search(r'^ListenPort\s*=\s*(\d+)', content, re.MULTILINE)
+    if not port_match:
+        errors.append("ListenPort não definida!")
+    else:
+        port = port_match.group(1)
+        if port == "22":
+            errors.append(f"ListenPort={port} está conflitando com SSH! Use 51820.")
+        elif port != "51820":
+            warnings.append(f"ListenPort={port} (padrão é 51820)")
+        else:
+            typer.secho(f"  ✓ ListenPort = {port}", fg=typer.colors.GREEN)
+    
+    # 4. Verificar PrivateKey e calcular PublicKey
+    typer.echo("\n🔑 Verificando chaves...")
+    
+    priv_match = re.search(r'^PrivateKey\s*=\s*(\S+)', content, re.MULTILINE)
+    if not priv_match:
+        errors.append("PrivateKey do servidor não encontrada!")
+    else:
+        private_key = priv_match.group(1)
+        try:
+            result = subprocess.run(
+                ["wg", "pubkey"],
+                input=private_key,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            server_public_key = result.stdout.strip()
+            typer.secho(f"  ✓ Chave Pública do Servidor:", fg=typer.colors.GREEN)
+            typer.secho(f"    {server_public_key}", fg=typer.colors.CYAN, bold=True)
+            typer.echo("    ↑ USE ESTA CHAVE no [Peer].PublicKey dos CLIENTES!")
+        except subprocess.CalledProcessError:
+            errors.append("Erro ao calcular chave pública do servidor!")
+    
+    # 5. Verificar peers
+    typer.echo("\n👥 Verificando peers...")
+    
+    peers = re.findall(r'\[Peer\].*?(?=\[|$)', content, re.DOTALL)
+    if not peers:
+        warnings.append("Nenhum peer (cliente) configurado!")
+    else:
+        typer.echo(f"  {len(peers)} peer(s) configurado(s)")
+        
+        for i, peer in enumerate(peers, 1):
+            pub_match = re.search(r'PublicKey\s*=\s*(\S+)', peer)
+            ip_match = re.search(r'AllowedIPs\s*=\s*(\S+)', peer)
+            
+            if pub_match:
+                peer_pubkey = pub_match.group(1)
+                # Verificar se a chave do peer é a mesma do servidor (erro comum!)
+                if 'server_public_key' in dir() and peer_pubkey == server_public_key:
+                    errors.append(f"Peer {i}: PublicKey é igual à do servidor! Erro de configuração.")
+                else:
+                    typer.secho(f"  ✓ Peer {i}: {peer_pubkey[:20]}...", fg=typer.colors.GREEN)
+            
+            if ip_match:
+                peer_ip = ip_match.group(1)
+                typer.echo(f"    AllowedIPs: {peer_ip}")
+    
+    # 6. Verificar PostUp/PostDown
+    typer.echo("\n🔧 Verificando iptables rules...")
+    
+    if "MASQUERADE" not in content:
+        errors.append("Regra MASQUERADE não encontrada no PostUp!")
+    else:
+        typer.secho("  ✓ Regra MASQUERADE presente", fg=typer.colors.GREEN)
+    
+    if "FORWARD" not in content:
+        errors.append("Regras FORWARD não encontradas no PostUp!")
+    else:
+        typer.secho("  ✓ Regras FORWARD presentes", fg=typer.colors.GREEN)
+    
+    # 7. Verificar se WireGuard está rodando
+    typer.echo("\n🚀 Verificando serviço...")
+    
+    result = subprocess.run(["systemctl", "is-active", "wg-quick@wg0"], capture_output=True, text=True)
+    if result.stdout.strip() == "active":
+        typer.secho("  ✓ WireGuard está rodando", fg=typer.colors.GREEN)
+        
+        # Verificar porta real sendo usada
+        wg_result = subprocess.run(["wg", "show", "wg0", "listen-port"], capture_output=True, text=True)
+        actual_port = wg_result.stdout.strip()
+        if actual_port and port_match:
+            if actual_port != port_match.group(1):
+                errors.append(f"CRÍTICO: Porta configurada ({port_match.group(1)}) difere da porta real ({actual_port})!")
+                errors.append("Reinicie o WireGuard: sudo systemctl restart wg-quick@wg0")
+            else:
+                typer.secho(f"  ✓ Escutando na porta {actual_port}", fg=typer.colors.GREEN)
+    else:
+        errors.append("WireGuard não está rodando!")
+    
+    # 8. Resumo
+    typer.echo("\n" + "="*60)
+    
+    if errors:
+        typer.secho("❌ ERROS ENCONTRADOS:", fg=typer.colors.RED, bold=True)
+        for error in errors:
+            typer.secho(f"  • {error}", fg=typer.colors.RED)
+    
+    if warnings:
+        typer.secho("\n⚠️  AVISOS:", fg=typer.colors.YELLOW, bold=True)
+        for warning in warnings:
+            typer.secho(f"  • {warning}", fg=typer.colors.YELLOW)
+    
+    if not errors and not warnings:
+        typer.secho("✅ Configuração do servidor OK!", fg=typer.colors.GREEN, bold=True)
+    
+    typer.echo("\n" + "="*60)
+    typer.secho("CHECKLIST PARA CLIENTES:", fg=typer.colors.CYAN, bold=True)
+    typer.echo("="*60)
+    typer.echo("1. [Peer].PublicKey deve ser a chave pública do SERVIDOR (acima)")
+    typer.echo("2. [Peer].Endpoint deve ser IP_PÚBLICO:PORTA (ex: 177.128.86.89:51820)")
+    typer.echo("3. [Interface].PrivateKey deve ser a chave privada do CLIENTE (não do servidor!)")
+    typer.echo("4. [Interface].Address deve ser único para cada cliente (ex: 10.8.0.2/32)")
+    typer.echo("")
+
+
 def diagnose_and_fix(ctx: ExecutionContext) -> None:
     """Diagnostica e corrige problemas de roteamento da VPN."""
     require_root(ctx)
@@ -656,10 +802,11 @@ def run(ctx: ExecutionContext) -> None:
         typer.echo("2. Listar clientes")
         typer.echo("3. Remover cliente")
         typer.echo("4. Mostrar configuração de cliente")
-        typer.echo("5. Diagnosticar e corrigir roteamento")
-        typer.echo("6. Sair")
+        typer.echo("5. Verificar configuração do servidor")
+        typer.echo("6. Diagnosticar e corrigir roteamento")
+        typer.echo("7. Sair")
         
-        choice = typer.prompt("\nEscolha uma opção", default="6")
+        choice = typer.prompt("\nEscolha uma opção", default="7")
         
         try:
             if choice == "1":
@@ -671,8 +818,10 @@ def run(ctx: ExecutionContext) -> None:
             elif choice == "4":
                 show_client_config(ctx)
             elif choice == "5":
-                diagnose_and_fix(ctx)
+                verify_config(ctx)
             elif choice == "6":
+                diagnose_and_fix(ctx)
+            elif choice == "7":
                 typer.echo("Saindo...")
                 break
             else:

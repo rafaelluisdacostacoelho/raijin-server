@@ -246,12 +246,103 @@ No servidor:
 
 ```bash
 sudo -E raijin-server vpn-client
-# Escolha opção 5: Diagnosticar e corrigir roteamento
+# Escolha opção 5: Verificar configuração do servidor
+# Escolha opção 6: Diagnosticar e corrigir roteamento
 ```
 
-Isso automaticamente:
+**Opção 5 (Verificar configuração):**
+- Valida arquivo wg0.conf
+- Mostra chave pública do servidor (COPIE ESTA!)
+- Detecta erros comuns (porta errada, chave duplicada)
+- Mostra checklist para clientes
+
+**Opção 6 (Diagnosticar):**
 - Verifica IP forwarding
 - Adiciona regras MASQUERADE
 - Configura UFW
 - Reinicia WireGuard
 - Mostra status dos peers
+
+---
+
+## ⚠️ ERROS COMUNS E SOLUÇÕES
+
+### 1. Porta Errada no Servidor
+
+**Sintoma:** Cliente não conecta, tcpdump mostra pacotes chegando mas WireGuard ignora.
+
+**Diagnóstico:**
+```bash
+# Verificar porta configurada vs real
+grep ListenPort /etc/wireguard/wg0.conf
+sudo wg show wg0 listen-port
+```
+
+**Erro típico:**
+```ini
+# Arquivo diz:
+ListenPort = 51820
+
+# Mas wg show mostra:
+listening port: 39944  # ou outra porta aleatória
+```
+
+**Solução:** Reiniciar WireGuard: `sudo systemctl restart wg-quick@wg0`
+
+---
+
+### 2. Chave Pública Errada no Cliente
+
+**Sintoma:** Handshake nunca acontece, mesmo com pacotes chegando.
+
+**Erro típico no cliente:**
+```ini
+[Peer]
+# ERRADO: usando chave do próprio cliente!
+PublicKey = uLIlC4+0tpH505kdB3VytvO/ZYA3GVz5zMZt4gH3RBc=
+```
+
+**Como descobrir a chave correta:**
+```bash
+# No servidor, calcular chave pública a partir da privada:
+grep PrivateKey /etc/wireguard/wg0.conf | cut -d= -f2 | tr -d ' ' | wg pubkey
+# Resultado: vz6JbBJly5VXfDNI6VvHQENeWV66xCwX14oyoRgZOUU=
+```
+
+**Solução:** No cliente Windows, usar a chave pública do SERVIDOR no [Peer]:
+```ini
+[Peer]
+# CORRETO: chave pública do servidor
+PublicKey = vz6JbBJly5VXfDNI6VvHQENeWV66xCwX14oyoRgZOUU=
+```
+
+---
+
+### 3. Falta [Interface] no Arquivo
+
+**Sintoma:** WireGuard inicia mas usa porta aleatória.
+
+**Arquivo corrompido:**
+```ini
+Address = 10.8.0.1/24
+ListenPort = 51820
+...
+```
+
+**Arquivo correto:**
+```ini
+[Interface]
+Address = 10.8.0.1/24
+ListenPort = 51820
+...
+```
+
+---
+
+### 4. SaveConfig Sobrescrevendo Configuração
+
+**Sintoma:** Alterações no arquivo são perdidas após restart.
+
+**Causa:** `SaveConfig = true` no arquivo (EVITE ISSO).
+
+**Solução:** Remover `SaveConfig = true` e reiniciar.

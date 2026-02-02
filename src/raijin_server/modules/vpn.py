@@ -173,12 +173,11 @@ def run(ctx: ExecutionContext) -> None:
         Address = {server_address}
         ListenPort = {listen_port}
         PrivateKey = {server_private}
-        SaveConfig = true
         PostUp = iptables -A FORWARD -i {interface} -j ACCEPT; iptables -A FORWARD -o {interface} -j ACCEPT; iptables -t nat -A POSTROUTING -o {egress_iface} -j MASQUERADE
         PostDown = iptables -D FORWARD -i {interface} -j ACCEPT; iptables -D FORWARD -o {interface} -j ACCEPT; iptables -t nat -D POSTROUTING -o {egress_iface} -j MASQUERADE
 
-        [Peer]
         # {client_name}
+        [Peer]
         PublicKey = {client_public}
         AllowedIPs = {client_address}
         """
@@ -210,8 +209,24 @@ def run(ctx: ExecutionContext) -> None:
     run_cmd(["systemctl", "enable", "--now", f"wg-quick@{interface}"], ctx)
 
     typer.secho("\n✓ WireGuard configurado com sucesso!", fg=typer.colors.GREEN, bold=True)
-    typer.echo(f"Configuracao do servidor: {server_conf_path}")
+    typer.echo("\n" + "="*60)
+    typer.secho("INFORMAÇÕES IMPORTANTES - GUARDE ESTAS CHAVES:", fg=typer.colors.YELLOW, bold=True)
+    typer.echo("="*60)
+    typer.echo(f"\nChave Pública do SERVIDOR (use no [Peer] dos clientes):")
+    typer.secho(f"  {server_public}", fg=typer.colors.CYAN, bold=True)
+    typer.echo(f"\nChave Pública do CLIENTE '{client_name}' (já no servidor):")
+    typer.secho(f"  {client_public}", fg=typer.colors.CYAN)
+    typer.echo("\n" + "="*60)
+    typer.echo(f"Configuração do servidor: {server_conf_path}")
     typer.echo(f"Cliente inicial salvo em: {client_conf_path}")
-    typer.echo("Para gerar QR code no terminal: qrencode -t ansiutf8 < caminho-do-cliente.conf")
-    typer.echo("Para novos clientes, gere chaves com 'wg genkey' e adicione entradas em ambos os arquivos.")
-    typer.echo("Clientes Linux/macOS: sudo wg-quick up ./cliente.conf | Windows: importe o arquivo no app WireGuard.")
+    typer.echo("\n" + "="*60)
+    typer.secho("PRÓXIMOS PASSOS:", fg=typer.colors.GREEN, bold=True)
+    typer.echo("="*60)
+    typer.echo("1. Copie a configuração do cliente para o dispositivo remoto")
+    typer.echo(f"   scp root@servidor:{client_conf_path} .")
+    typer.echo("\n2. No cliente, verifique se o [Peer].PublicKey é a chave pública do SERVIDOR")
+    typer.echo(f"   PublicKey = {server_public}")
+    typer.echo("\n3. Configure o Endpoint com o IP público do servidor:")
+    typer.echo(f"   Endpoint = {public_endpoint}:{listen_port}")
+    typer.echo("\n4. QR code para celular: qrencode -t ansiutf8 < caminho-do-cliente.conf")
+    typer.echo("\n5. Windows/Mac: importe o arquivo .conf no app WireGuard")
