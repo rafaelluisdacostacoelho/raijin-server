@@ -138,12 +138,17 @@ def _get_minio_credentials(ctx: ExecutionContext) -> tuple[str, str]:
     )
 
 
-def _initialize_vault(ctx: ExecutionContext, vault_ns: str, node_ip: str) -> tuple[str, list[str]]:
-    """Inicializa o Vault e retorna root token e unseal keys."""
-    typer.echo("\n Inicializando Vault...")
+def _initialize_vault(ctx: ExecutionContext, vault_ns: str, node_ip: str) -> tuple[str, str]:
+    """Inicializa o Vault com 1 key/1 threshold e retorna root token e unseal key."""
+    typer.echo("\nInicializando Vault...")
     
+    # Usa 1 key com threshold 1 para simplificar (produção pode usar 5/3)
     result = run_cmd(
-        ["kubectl", "-n", vault_ns, "exec", "vault-0", "--", "vault", "operator", "init", "-format=json"],
+        [
+            "kubectl", "-n", vault_ns, "exec", "vault-0", "--", 
+            "vault", "operator", "init", 
+            "-key-shares=1", "-key-threshold=1", "-format=json"
+        ],
         ctx,
         check=False,
     )
@@ -155,28 +160,60 @@ def _initialize_vault(ctx: ExecutionContext, vault_ns: str, node_ip: str) -> tup
     import json
     init_data = json.loads(result.stdout)
     root_token = init_data["root_token"]
-    unseal_keys = init_data["unseal_keys_b64"]
+    unseal_key = init_data["unseal_keys_b64"][0]
     
     # Salva keys localmente
     vault_keys_path = Path("/etc/vault/keys.json")
     vault_keys_path.parent.mkdir(parents=True, exist_ok=True)
     vault_keys_path.write_text(json.dumps(init_data, indent=2))
     typer.secho(f"\n✓ Vault keys salvas em {vault_keys_path}", fg=typer.colors.GREEN)
+    
+    # Salva credenciais em secret K8s para uso do ESO
+    _save_vault_credentials_to_k8s(ctx, vault_ns, root_token, unseal_key)
+    
     typer.secho("⚠️  IMPORTANTE: Guarde essas keys em local seguro!", fg=typer.colors.YELLOW, bold=True)
     
-    return root_token, unseal_keys
+    return root_token, unseal_key
 
 
-def _unseal_vault(ctx: ExecutionContext, vault_ns: str, unseal_keys: list[str]) -> None:
-    """Destrava o Vault usando as unseal keys."""
+def _save_vault_credentials_to_k8s(ctx: ExecutionContext, vault_ns: str, root_token: str, unseal_key: str) -> None:
+    """Salva credenciais do Vault em secret K8s."""
+    typer.echo("Salvando credenciais do Vault em secret K8s...")
+    
+    # Codifica em base64
+    token_b64 = base64.b64encode(root_token.encode()).decode()
+    key_b64 = base64.b64encode(unseal_key.encode()).decode()
+    
+    secret_yaml = f"""apiVersion: v1
+kind: Secret
+metadata:
+  name: vault-init-credentials
+  namespace: {vault_ns}
+type: Opaque
+data:
+  root-token: {token_b64}
+  unseal-key: {key_b64}
+"""
+    
+    secret_path = Path("/tmp/raijin-vault-credentials.yaml")
+    write_file(secret_path, secret_yaml, ctx)
+    
+    run_cmd(
+        ["kubectl", "apply", "-f", str(secret_path)],
+        ctx,
+    )
+    
+    typer.secho("✓ Credenciais salvas em secret vault-init-credentials.", fg=typer.colors.GREEN)
+
+
+def _unseal_vault(ctx: ExecutionContext, vault_ns: str, unseal_key: str) -> None:
+    """Destrava o Vault usando a unseal key."""
     typer.echo("\nDesbloqueando Vault...")
     
-    # Precisa de 3 keys das 5 geradas (threshold padrão)
-    for i in range(3):
-        run_cmd(
-            ["kubectl", "-n", vault_ns, "exec", "vault-0", "--", "vault", "operator", "unseal", unseal_keys[i]],
-            ctx,
-        )
+    run_cmd(
+        ["kubectl", "-n", vault_ns, "exec", "vault-0", "--", "vault", "operator", "unseal", unseal_key],
+        ctx,
+    )
     
     typer.secho("✓ Vault desbloqueado.", fg=typer.colors.GREEN)
 
@@ -262,23 +299,21 @@ def _create_secretstore_example(ctx: ExecutionContext, vault_ns: str, eso_ns: st
     """Cria exemplo de ClusterSecretStore e ExternalSecret."""
     typer.echo("\nCriando exemplo de ClusterSecretStore...")
     
-    secretstore_yaml = f"""apiVersion: external-secrets.io/v1beta1
+    secretstore_yaml = f"""apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
 metadata:
   name: vault-backend
 spec:
   provider:
     vault:
-      server: "http://vault.{vault_ns}.svc.cluster.local:8200"
+      server: "http://vault.{vault_ns}.svc:8200"
       path: "secret"
       version: "v2"
       auth:
-        kubernetes:
-          mountPath: "kubernetes"
-          role: "eso-role"
-          serviceAccountRef:
-            name: "external-secrets"
-            namespace: "{eso_ns}"
+        tokenSecretRef:
+          namespace: "{vault_ns}"
+          name: "vault-init-credentials"
+          key: "root-token"
 """
     
     secretstore_path = Path("/tmp/raijin-vault-secretstore.yaml")
@@ -310,7 +345,7 @@ def _create_example_secret(ctx: ExecutionContext, vault_ns: str, root_token: str
     typer.secho("✓ Secret 'secret/example' criado no Vault.", fg=typer.colors.GREEN)
     
     # Cria ExternalSecret de exemplo
-    external_secret_yaml = """apiVersion: external-secrets.io/v1beta1
+    external_secret_yaml = """apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: example-secret
@@ -379,7 +414,7 @@ def run(ctx: ExecutionContext) -> None:
     )
     node_ip = result.stdout.strip() if result.returncode == 0 else "192.168.1.81"
     
-    minio_host = typer.prompt("MinIO host", default=f"{node_ip}:30900")
+    minio_host = typer.prompt("MinIO host (interno)", default="minio.minio.svc:9000")
     access_key, secret_key = _get_minio_credentials(ctx)
 
     # ========== HashiCorp Vault ==========
@@ -469,15 +504,14 @@ injector:
     if not ctx.dry_run:
         _wait_for_pods_ready(ctx, vault_ns, "app.kubernetes.io/name=vault", timeout=180)
         
-        # Inicializa Vault
-        root_token, unseal_keys = _initialize_vault(ctx, vault_ns, node_ip)
+        # Inicializa Vault (retorna root_token e unseal_key)
+        root_token, unseal_key = _initialize_vault(ctx, vault_ns, node_ip)
         
         # Destrava Vault
-        _unseal_vault(ctx, vault_ns, unseal_keys)
+        _unseal_vault(ctx, vault_ns, unseal_key)
         
         # Configura Vault
         _enable_kv_secrets(ctx, vault_ns, root_token)
-        _configure_kubernetes_auth(ctx, vault_ns, root_token)
 
     # ========== External Secrets Operator ==========
     typer.secho("\n== External Secrets Operator ==", fg=typer.colors.CYAN, bold=True)
@@ -545,8 +579,7 @@ resources:
     if not ctx.dry_run:
         _wait_for_pods_ready(ctx, eso_ns, "app.kubernetes.io/name=external-secrets", timeout=120)
         
-        # Configura integração Vault + ESO
-        _create_eso_policy_and_role(ctx, vault_ns, root_token, eso_ns)
+        # Cria ClusterSecretStore (usa tokenSecretRef, não precisa de Kubernetes auth)
         _create_secretstore_example(ctx, vault_ns, eso_ns, node_ip)
         _create_example_secret(ctx, vault_ns, root_token)
 
@@ -562,7 +595,7 @@ resources:
     
     typer.echo("\n2. Criar ExternalSecret:")
     typer.echo("   kubectl apply -f - <<EOF")
-    typer.echo("   apiVersion: external-secrets.io/v1beta1")
+    typer.echo("   apiVersion: external-secrets.io/v1")
     typer.echo("   kind: ExternalSecret")
     typer.echo("   metadata:")
     typer.echo("     name: myapp-secret")
@@ -582,8 +615,14 @@ resources:
     typer.echo("\n3. Secret será sincronizado automaticamente!")
     typer.echo("   kubectl get secret myapp-secret -o yaml")
     
+    typer.secho("\n=== Recuperar Credenciais ===", fg=typer.colors.CYAN)
+    typer.echo("Via arquivo local:")
+    typer.echo("  cat /etc/vault/keys.json")
+    typer.echo("\nVia Kubernetes Secret:")
+    typer.echo(f"  kubectl -n {vault_ns} get secret vault-init-credentials -o jsonpath='{{.data.root-token}}' | base64 -d")
+    typer.echo(f"  kubectl -n {vault_ns} get secret vault-init-credentials -o jsonpath='{{.data.unseal-key}}' | base64 -d")
+    
     typer.secho("\n⚠️  IMPORTANTE:", fg=typer.colors.YELLOW, bold=True)
-    typer.echo(f"- Root token e unseal keys salvos em: /etc/vault/keys.json")
-    typer.echo("- Faça backup dessas keys em local seguro!")
-    typer.echo("- Após reboot do Vault, use: kubectl -n vault exec vault-0 -- vault operator unseal")
+    typer.echo("- Faça backup das credenciais em local seguro!")
+    typer.echo(f"- Após reboot do Vault, use: kubectl -n {vault_ns} exec vault-0 -- vault operator unseal <unseal-key>")
 
