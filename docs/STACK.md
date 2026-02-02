@@ -346,7 +346,7 @@ Application Pods (transparent)
 
 | Componente | Versão | Finalidade | Status | Acesso |
 |------------|--------|------------|--------|--------|
-| **Argo CD** | v2.14+ | GitOps Continuous Delivery | ✅ Instalado | NodePort 30443 |
+| **Argo CD** | v2.14+ | GitOps Continuous Delivery | ✅ Instalado | NodePort 30800 (HTTP), 30443 (HTTPS) |
 | **Argo Workflows** | v3.6+ | CI Pipelines como K8s CRDs | ✅ Instalado | NodePort 30881 |
 | **Semgrep** | Latest | SAST code scanning | 📖 Documentado | CLI no pipeline |
 
@@ -354,13 +354,13 @@ Application Pods (transparent)
 - Instalado no namespace `argocd`
 - 100% self-hosted, CNCF Graduated
 - Sync automático de Git para K8s
-- UI: https://argocd.local ou http://<node-ip>:30443
+- UI: http://argocd.asgard.internal ou http://<node-ip>:30800
 
 **Argo Workflows (CI)**:
 - Instalado no namespace `argo`
 - Pipelines como Kubernetes CRDs
 - Integra com MinIO para artifacts
-- UI: https://argo.local ou http://<node-ip>:30881
+- UI: http://argo.asgard.internal ou http://<node-ip>:30881
 
 **Semgrep Integration**:
 - Roda no CI stage
@@ -409,7 +409,7 @@ Application Pods (transparent)
 │       • Exit code: 0 (warning only)                        │
 │       ↓                                                     │
 │  [6] Docker push to Harbor                                 │
-│       • Tag: harbor.local/tst/myapp:dev-${WORKFLOW_ID}    │
+│       • Tag: harbor.asgard.internal/tst/myapp:dev-${WORKFLOW_ID}│
 │       • Harbor auto-scan with Trivy                        │
 │       ↓                                                     │
 │  [7] Update Git repo (image tag)                           │
@@ -476,7 +476,7 @@ Application Pods (transparent)
 │       • Exit code: 1 if CRITICAL found (BLOCK)             │
 │       ↓                                                     │
 │  [6] Docker push to Harbor                                 │
-│       • Tag: harbor.local/prd/myapp:v1.2.3                │
+│       • Tag: harbor.asgard.internal/prd/myapp:v1.2.3      │
 │       • Harbor auto-scan with Trivy                        │
 │       • Harbor BLOCKS if CRITICAL vulnerabilities          │
 │       ↓                                                     │

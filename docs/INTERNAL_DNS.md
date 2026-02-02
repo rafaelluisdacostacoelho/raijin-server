@@ -110,15 +110,20 @@ sudo wg-quick up wg0
 
 O módulo detecta e configura:
 
-| Serviço | Namespace | Domínio Padrão |
-|---------|-----------|----------------|
-| Grafana | observability | `grafana.asgard.internal` |
-| Prometheus | observability | `prometheus.asgard.internal` |
-| Alertmanager | observability | `alertmanager.asgard.internal` |
-| Loki | observability | `loki.asgard.internal` |
-| MinIO Console | minio | `minio.asgard.internal` |
-| Traefik Dashboard | traefik | `traefik.asgard.internal` |
-| Kong Admin API | kong | `kong.asgard.internal` |
+| Serviço | Namespace | Domínio Padrão | NodePort |
+|---------|-----------|----------------|----------|
+| Argo CD | argocd | `argocd.asgard.internal` | 30800 |
+| Argo Workflows | argo | `argo.asgard.internal` | 30881 |
+| Grafana | observability | `grafana.asgard.internal` | 30030 |
+| Prometheus | observability | `prometheus.asgard.internal` | 30090 |
+| Alertmanager | observability | `alertmanager.asgard.internal` | 30093 |
+| Loki | observability | `loki.asgard.internal` | 30310 |
+| MinIO Console | minio | `minio.asgard.internal` | 30900 |
+| MinIO API | minio | `minio-api.asgard.internal` | 30901 |
+| Vault | vault | `vault.asgard.internal` | 30820 |
+| Harbor | harbor | `harbor.asgard.internal` | 30880 |
+| Traefik Dashboard | traefik | `traefik.asgard.internal` | 30080 |
+| Kong Admin API | kong | `kong.asgard.internal` | - |
 
 ## Uso
 
@@ -140,10 +145,19 @@ sudo wg-quick up cliente1
 Simplesmente abra o navegador e acesse:
 
 ```
-http://grafana.asgard.internal
-http://prometheus.asgard.internal
-http://alertmanager.asgard.internal
-http://minio.asgard.internal
+# CI/CD
+http://argocd.asgard.internal:30800
+http://argo.asgard.internal:30881
+
+# Observability
+http://grafana.asgard.internal:30030
+http://prometheus.asgard.internal:30090
+http://alertmanager.asgard.internal:30093
+
+# Storage & Secrets
+http://minio.asgard.internal:30900
+http://vault.asgard.internal:30820
+http://harbor.asgard.internal:30880
 ```
 
 **Não é necessário port-forward!** 🎉
