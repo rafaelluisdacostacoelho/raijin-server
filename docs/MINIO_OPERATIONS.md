@@ -115,3 +115,50 @@ Com o `local-path-provisioner`, cada PVC vira um diretório em
 `/opt/local-path-provisioner/pvc-<uid>/`. Use `sudo du -h --max-depth=1 /opt/local-path-provisioner`
 para inspecionar consumo. Para mover para outro disco, monte o NVMe desejado nesse caminho
 antes de instalar o Raijin Server.
+
+## 9. Usuários Least-Privilege
+
+O Raijin Server cria automaticamente **usuários dedicados** para cada aplicação que usa MinIO,
+seguindo o princípio de **least-privilege**:
+
+| Aplicação | Usuário MinIO | Bucket(s) | Criado pelo módulo |
+|-----------|---------------|-----------|-------------------|
+| Vault | `vault-user` | `vault-storage` | `secrets` |
+| Velero | `velero-user` | `velero-backups` | `velero` |
+| Harbor | `harbor-user` | `harbor-registry`, `harbor-chartmuseum`, `harbor-jobservice` | `harbor` |
+| Loki | `loki-user` | `loki-chunks` | `loki` |
+
+### Verificar usuários existentes
+
+```bash
+kubectl -n minio exec minio-0 -- mc admin user ls local
+```
+
+### Verificar políticas
+
+```bash
+kubectl -n minio exec minio-0 -- mc admin policy ls local
+kubectl -n minio exec minio-0 -- mc admin policy info local vault-policy
+```
+
+### Testar isolamento
+
+```bash
+# Criar alias com credenciais do vault-user
+kubectl -n minio exec minio-0 -- mc alias set vault-test http://localhost:9000 vault-user '<password>'
+
+# Tentar acessar bucket do Velero (deve falhar!)
+kubectl -n minio exec minio-0 -- mc ls vault-test/velero-backups/
+# Esperado: Access Denied
+
+# Acessar bucket do Vault (deve funcionar)
+kubectl -n minio exec minio-0 -- mc ls vault-test/vault-storage/
+```
+
+### Recuperar credenciais de um usuário
+
+```bash
+# Credenciais salvas no secret do namespace da aplicação
+kubectl -n vault get secret minio-vault-credentials -o jsonpath='{.data.accesskey}' | base64 -d
+kubectl -n vault get secret minio-vault-credentials -o jsonpath='{.data.secretkey}' | base64 -d
+```

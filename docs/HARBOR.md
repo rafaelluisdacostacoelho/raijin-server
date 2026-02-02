@@ -69,9 +69,9 @@ raijin-server install harbor
 
 **Prompts**:
 - `Namespace para Harbor`: `harbor` (padrão)
-- `MinIO host`: `192.168.1.81:30900` 
-- `MinIO Access Key`: `thor`
-- `MinIO Secret Key`: `rebel1on`
+- `MinIO host`: `minio.minio.svc:9000` (interno) ou `192.168.1.81:30900` (NodePort)
+- `MinIO Access Key`: `harbor-user` (criado automaticamente com least-privilege)
+- `MinIO Secret Key`: (gerado automaticamente)
 - `NodePort para Harbor UI/Registry`: `30880` (padrão)
 - `Senha do admin`: `Harbor12345` (troque!)
 
@@ -91,6 +91,13 @@ raijin-server install harbor
 3. **Projetos criados automaticamente**:
    - `tst` (test/staging)
    - `prd` (production)
+
+4. **MinIO Least-Privilege**:
+   - Usuário `harbor-user` criado com acesso **apenas** aos buckets:
+     - `harbor-registry`
+     - `harbor-chartmuseum`
+     - `harbor-jobservice`
+   - Credenciais salvas em secret `minio-harbor-credentials` no namespace harbor
 
 ---
 

@@ -254,17 +254,35 @@ groups:
 
 ## Credenciais
 
-As credenciais do MinIO para o Velero estão em:
-- **Secret:** `cloud-credentials` no namespace `velero`
-- **Arquivo local:** `/etc/velero/credentials`
+O Velero usa um usuário MinIO dedicado com **least-privilege** (acesso apenas ao bucket `velero-backups`).
+
+### Secrets Kubernetes
+
+- **`cloud-credentials`**: Credenciais no formato AWS (usado pelo Velero)
+- **`minio-velero-credentials`**: Credenciais brutas (accesskey/secretkey)
+
+```bash
+# Ver credenciais
+kubectl -n velero get secret cloud-credentials -o jsonpath='{.data.cloud}' | base64 -d
+
+# Ver usuário/senha MinIO
+kubectl -n velero get secret minio-velero-credentials -o jsonpath='{.data.accesskey}' | base64 -d
+kubectl -n velero get secret minio-velero-credentials -o jsonpath='{.data.secretkey}' | base64 -d
+```
 
 ### Formato do Arquivo de Credenciais
 
 ```ini
 [default]
-aws_access_key_id = <MINIO_USER>
-aws_secret_access_key = <MINIO_PASSWORD>
+aws_access_key_id = velero-user
+aws_secret_access_key = <GENERATED_PASSWORD>
 ```
+
+### Isolamento Least-Privilege
+
+O usuário `velero-user` tem acesso **apenas** ao bucket `velero-backups`:
+- ✅ Pode listar, ler, escrever no bucket `velero-backups`
+- ❌ Não pode acessar outros buckets (vault-storage, harbor-*, etc.)
 
 ## Referências
 

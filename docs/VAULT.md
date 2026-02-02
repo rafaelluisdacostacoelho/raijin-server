@@ -80,9 +80,9 @@ raijin-server install secrets
 **Prompts durante instalação**:
 - `Namespace para Vault`: `vault` (padrão)
 - `Namespace para External Secrets`: `external-secrets` (padrão)
-- `MinIO host`: `192.168.1.81:30900` (NodePort MinIO)
-- `MinIO Access Key`: `thor`
-- `MinIO Secret Key`: `rebel1on`
+- `MinIO host`: `minio.minio.svc:9000` (interno) ou `192.168.1.81:30900` (NodePort)
+- `MinIO Access Key`: `vault-user` (criado automaticamente com least-privilege)
+- `MinIO Secret Key`: (gerado automaticamente)
 
 ### O que é instalado
 
@@ -101,11 +101,13 @@ raijin-server install secrets
 3. **Configurações automáticas**
    - Vault inicializado e unsealed
    - KV v2 engine habilitado em `secret/`
-   - Kubernetes auth configurado
-   - Policy `eso-policy` para ESO
-   - Role `eso-role` para ServiceAccount do ESO
    - ClusterSecretStore `vault-backend` criado
-   - Secret de exemplo sincronizado
+   - Credenciais salvas em secret `vault-init-credentials` no namespace vault
+
+4. **MinIO Least-Privilege**
+   - Usuário `vault-user` criado com acesso **apenas** ao bucket `vault-storage`
+   - Policy S3 restritiva aplicada automaticamente
+   - Credenciais salvas em secret `minio-vault-credentials` no namespace vault
 
 ---
 
@@ -114,22 +116,19 @@ raijin-server install secrets
 ### Unseal Keys e Root Token
 
 **IMPORTANTE**: Após instalação, keys são salvas em:
+
+**Arquivo local** (se usado `--save-keys`):
 ```
 /etc/vault/keys.json
 ```
 
-**Conteúdo**:
-```json
-{
-  "root_token": "hvs.xxxxxxxxxxxxxxxxxx",
-  "unseal_keys_b64": [
-    "key1==",
-    "key2==",
-    "key3==",
-    "key4==",
-    "key5=="
-  ]
-}
+**Secret Kubernetes** (sempre):
+```bash
+# Root Token
+kubectl -n vault get secret vault-init-credentials -o jsonpath='{.data.root-token}' | base64 -d
+
+# Unseal Key
+kubectl -n vault get secret vault-init-credentials -o jsonpath='{.data.unseal-key}' | base64 -d
 ```
 
 ⚠️ **BACKUP OBRIGATÓRIO**: Guarde essas keys em local seguro (cofre físico, gerenciador de senhas, etc.)
@@ -254,24 +253,24 @@ vault kv get secret/myapp
 ### ClusterSecretStore (já criado)
 
 ```yaml
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
 metadata:
   name: vault-backend
 spec:
   provider:
     vault:
-      server: "http://vault.vault.svc.cluster.local:8200"
+      server: "http://vault.vault.svc:8200"
       path: "secret"
       version: "v2"
       auth:
-        kubernetes:
-          mountPath: "kubernetes"
-          role: "eso-role"
-          serviceAccountRef:
-            name: "external-secrets"
-            namespace: "external-secrets"
+        tokenSecretRef:
+          namespace: vault
+          name: vault-init-credentials
+          key: root-token
 ```
+
+> **Nota**: Em produção, recomenda-se usar Kubernetes Auth ao invés de token estático.
 
 ### Exemplo 1: Sincronizar Secret Individual
 
@@ -288,7 +287,7 @@ kubectl -n vault exec vault-0 -- \
 **2. Criar ExternalSecret**:
 ```yaml
 # myapp-secret.yaml
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: myapp-external-secret
@@ -363,7 +362,7 @@ spec:
 ### Exemplo 2: Sincronizar Todas as Chaves
 
 ```yaml
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: database-credentials
@@ -388,7 +387,7 @@ spec:
 ### Exemplo 3: Template Customizado
 
 ```yaml
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: app-config
