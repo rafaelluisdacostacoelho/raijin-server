@@ -15,6 +15,7 @@ __all__ = [
     "prometheus",
     "grafana",
     "loki",
+    "harbor",
     "harness",
     "velero",
     "kafka",
@@ -29,7 +30,7 @@ __all__ = [
     "full_install",
 ]
 
-from raijin_server.modules import calico, essentials, firewall, grafana, harness, hardening, istio
+from raijin_server.modules import calico, essentials, firewall, grafana, harbor, harness, hardening, istio
 from raijin_server.modules import kafka, kong, kubernetes, loki, minio, network
 from raijin_server.modules import prometheus, traefik, velero, apokolips_demo, secrets, cert_manager
 from raijin_server.modules import bootstrap, full_install, sanitize, ssh_hardening, vpn, vpn_client, internal_dns
