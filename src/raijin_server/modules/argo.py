@@ -123,7 +123,7 @@ server:
   replicas: 1
   service:
     type: NodePort
-    nodePortHttp: 30880
+    nodePortHttp: 30800
     nodePortHttps: 30443
   extraArgs:
     - --insecure  # Disable TLS for internal access (use Traefik for TLS termination)
@@ -425,7 +425,7 @@ def _show_access_info(admin_password: str) -> None:
     typer.secho("=" * 60, fg=typer.colors.GREEN)
 
     typer.echo("\n📦 Argo CD (GitOps Continuous Delivery):")
-    typer.echo("   URL: https://argocd.local ou http://<node-ip>:30443")
+    typer.echo("   URL: https://argocd.local ou http://<node-ip>:30800")
     typer.echo(f"   User: admin")
     typer.echo(f"   Password: {admin_password}")
 
