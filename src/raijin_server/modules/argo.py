@@ -241,9 +241,8 @@ server:
     - key: node-role.kubernetes.io/master
       operator: Exists
       effect: NoSchedule
-  service:
-    type: NodePort
-    nodePortHttp: 30881
+  serviceType: NodePort
+  serviceNodePort: 30881
   extraArgs:
     - --auth-mode=server  # Simple auth for internal use
   ingress:
