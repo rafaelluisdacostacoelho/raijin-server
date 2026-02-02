@@ -19,8 +19,6 @@ from raijin_server.modules import (
     kubernetes,
     loki,
     network,
-    observability_dashboards,
-    observability_ingress,
     prometheus,
     secrets,
     sanitize,
@@ -195,18 +193,6 @@ def _diag_traefik(ctx: ExecutionContext) -> None:
     _diag_namespace(ns, ctx)
 
 
-def _diag_observability_ingress(ctx: ExecutionContext) -> None:
-    ns = "observability"
-    _run_cmd("Ingress objects", ["kubectl", "get", "ingress", "-n", ns], ctx)
-    _diag_namespace(ns, ctx)
-
-
-def _diag_observability_dashboards(ctx: ExecutionContext) -> None:
-    ns = "observability"
-    _run_cmd("ConfigMaps dashboards", ["kubectl", "get", "configmap", "-n", ns, "-l", "raijin/dashboards=true"], ctx)
-    _diag_namespace(ns, ctx)
-
-
 def _diag_minio(ctx: ExecutionContext) -> None:
     ns = "minio"
     _diag_namespace(ns, ctx)
@@ -236,8 +222,6 @@ DIAG_HANDLERS = {
     "grafana": _diag_grafana,
     "loki": _diag_loki,
     "traefik": _diag_traefik,
-    "observability_ingress": _diag_observability_ingress,
-    "observability_dashboards": _diag_observability_dashboards,
     "minio": _diag_minio,
     "kafka": _diag_kafka,
     "velero": _diag_velero,
@@ -278,8 +262,6 @@ INSTALL_SEQUENCE = [
     ("grafana", grafana.run, "Dashboards Grafana", None),
     ("loki", loki.run, "Logs centralizados Loki", None),
     ("traefik", traefik.run, "Ingress Controller Traefik", None),
-    ("observability_ingress", observability_ingress.run, "Ingress seguro para Grafana/Prometheus/Alertmanager", None),
-    ("observability_dashboards", observability_dashboards.run, "Dashboards opinativos e alertas", None),
 ]
 
 

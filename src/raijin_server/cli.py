@@ -36,8 +36,6 @@ from raijin_server.modules import (
     metallb,
     minio,
     network,
-    observability_dashboards,
-    observability_ingress,
     prometheus,
     secrets,
     sanitize,
@@ -99,8 +97,6 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "minio": minio.run,
     "prometheus": prometheus.run,
     "grafana": grafana.run,
-    "observability_ingress": observability_ingress.run,
-    "observability_dashboards": observability_dashboards.run,
     "apokolips_demo": apokolips_demo.run,
     "secrets": secrets.run,
     "loki": loki.run,
@@ -136,8 +132,6 @@ MODULE_DESCRIPTIONS: Dict[str, str] = {
     "minio": "Objeto storage S3-compat via Helm",
     "prometheus": "Stack kube-prometheus",
     "grafana": "Dashboards e datasource Prometheus",
-    "observability_ingress": "Ingress seguro com auth/TLS para Grafana/Prometheus/Alertmanager",
-    "observability_dashboards": "Dashboards Grafana + alertas default Prometheus/Alertmanager",
     "apokolips_demo": "Landing page Apokolips para testar ingress externo",
     "secrets": "Instala sealed-secrets e external-secrets via Helm",
     "loki": "Logs centralizados Loki",
@@ -558,16 +552,6 @@ def grafana(ctx: typer.Context) -> None:
 @app.command(name="apokolips-demo")
 def apokolips_demo_cmd(ctx: typer.Context) -> None:
     _run_module(ctx, "apokolips_demo")
-
-
-@app.command(name="observability-ingress")
-def observability_ingress_cmd(ctx: typer.Context) -> None:
-    _run_module(ctx, "observability_ingress")
-
-
-@app.command(name="observability-dashboards")
-def observability_dashboards_cmd(ctx: typer.Context) -> None:
-    _run_module(ctx, "observability_dashboards")
 
 
 @app.command()
