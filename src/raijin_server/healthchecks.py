@@ -473,7 +473,7 @@ def validate_module_status(module: str) -> ModuleStatus:
         "secrets": _validate_secrets,
         "loki": _validate_loki,
         "harbor": _validate_harbor,
-        "harness": _validate_harness,
+        "argo": _validate_argo,
         "velero": _validate_velero,
         "kafka": _validate_kafka,
         "full_install": _validate_full_install,
@@ -703,11 +703,17 @@ def _validate_harbor() -> ModuleStatus:
     return "error"
 
 
-def _validate_harness() -> ModuleStatus:
-    exists, running = _check_pods_running("harness")
-    if not exists:
+def _validate_argo() -> ModuleStatus:
+    # Verifica Argo CD (namespace argocd)
+    argocd_exists, argocd_running = _check_pods_running("argocd")
+    # Verifica Argo Workflows (namespace argo)
+    workflows_exists, workflows_running = _check_pods_running("argo")
+    
+    if not argocd_exists and not workflows_exists:
         return "not_installed"
-    if running:
+    
+    # Pelo menos um instalado e rodando
+    if (argocd_exists and argocd_running) or (workflows_exists and workflows_running):
         return "ok"
     return "error"
 

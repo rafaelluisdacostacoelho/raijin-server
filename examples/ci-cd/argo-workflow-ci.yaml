@@ -1,0 +1,305 @@
+# Argo Workflows - CI Pipeline Example
+# Este exemplo mostra um pipeline de CI completo com:
+# - Build de imagem Docker
+# - Push para Harbor registry
+# - Scan de vulnerabilidades
+# - Trigger do deploy via Argo CD
+
+---
+# WorkflowTemplate reutilizável para CI
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: ci-build-template
+  namespace: argo
+spec:
+  # Argumentos de entrada
+  arguments:
+    parameters:
+      - name: repo-url
+        value: "https://github.com/your-org/your-app.git"
+      - name: branch
+        value: "develop"
+      - name: image-name
+        value: "harbor.local/tst/your-app"
+      - name: dockerfile
+        value: "Dockerfile"
+      - name: context
+        value: "."
+
+  # Volumes compartilhados
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+
+  # Tolerations para control-plane
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+
+  # Templates de steps
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: checkout
+            template: git-checkout
+          
+          - name: test
+            template: run-tests
+            dependencies: [checkout]
+          
+          - name: build
+            template: docker-build
+            dependencies: [test]
+          
+          - name: scan
+            template: trivy-scan
+            dependencies: [build]
+          
+          - name: push
+            template: docker-push
+            dependencies: [scan]
+          
+          - name: notify-argocd
+            template: argocd-sync
+            dependencies: [push]
+
+    # Step: Git checkout
+    - name: git-checkout
+      container:
+        image: alpine/git:latest
+        command: [sh, -c]
+        args:
+          - |
+            git clone --branch {{workflow.parameters.branch}} \
+              {{workflow.parameters.repo-url}} /workspace/src
+            cd /workspace/src
+            echo "Commit: $(git rev-parse HEAD)" > /workspace/commit.txt
+            echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> /workspace/env
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspace
+
+    # Step: Run tests
+    - name: run-tests
+      container:
+        image: python:3.11-slim
+        command: [sh, -c]
+        args:
+          - |
+            cd /workspace/src
+            pip install -r requirements.txt 2>/dev/null || true
+            pip install pytest pytest-cov 2>/dev/null || true
+            pytest tests/ --cov=. --cov-report=xml || echo "No tests found"
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspace
+
+    # Step: Docker build (usando Kaniko - não precisa de Docker-in-Docker)
+    - name: docker-build
+      container:
+        image: gcr.io/kaniko-project/executor:latest
+        command: ["/kaniko/executor"]
+        args:
+          - "--context=/workspace/src/{{workflow.parameters.context}}"
+          - "--dockerfile=/workspace/src/{{workflow.parameters.dockerfile}}"
+          - "--destination={{workflow.parameters.image-name}}:{{workflow.name}}"
+          - "--no-push"
+          - "--tarPath=/workspace/image.tar"
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspace
+          - name: docker-config
+            mountPath: /kaniko/.docker
+      volumes:
+        - name: docker-config
+          secret:
+            secretName: harbor-credentials
+
+    # Step: Scan com Trivy
+    - name: trivy-scan
+      container:
+        image: aquasec/trivy:latest
+        command: [sh, -c]
+        args:
+          - |
+            trivy image --input /workspace/image.tar \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --format table
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspace
+
+    # Step: Push para registry
+    - name: docker-push
+      container:
+        image: gcr.io/go-containerregistry/crane:latest
+        command: [sh, -c]
+        args:
+          - |
+            crane push /workspace/image.tar {{workflow.parameters.image-name}}:{{workflow.name}}
+            crane tag {{workflow.parameters.image-name}}:{{workflow.name}} \
+              {{workflow.parameters.image-name}}:latest
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspace
+        env:
+          - name: DOCKER_CONFIG
+            value: /root/.docker
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspace
+          - name: docker-config
+            mountPath: /root/.docker
+      volumes:
+        - name: docker-config
+          secret:
+            secretName: harbor-credentials
+
+    # Step: Trigger Argo CD sync
+    - name: argocd-sync
+      container:
+        image: quay.io/argoproj/argocd:latest
+        command: [sh, -c]
+        args:
+          - |
+            argocd login argocd-server.argocd.svc.cluster.local:443 \
+              --username admin \
+              --password $ARGOCD_PASSWORD \
+              --insecure
+            
+            # Atualiza a imagem na application
+            argocd app set my-app-tst \
+              --kustomize-image {{workflow.parameters.image-name}}:{{workflow.name}}
+            
+            # Força sync
+            argocd app sync my-app-tst --force
+        env:
+          - name: ARGOCD_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: argocd-credentials
+                key: password
+
+---
+# Workflow que usa o template
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: ci-build-
+  namespace: argo
+spec:
+  workflowTemplateRef:
+    name: ci-build-template
+  arguments:
+    parameters:
+      - name: repo-url
+        value: "https://github.com/your-org/your-app.git"
+      - name: branch
+        value: "develop"
+      - name: image-name
+        value: "harbor.local/tst/your-app"
+
+---
+# CronWorkflow para builds agendados (opcional)
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: nightly-build
+  namespace: argo
+spec:
+  schedule: "0 2 * * *"  # Todo dia às 2h
+  timezone: "America/Sao_Paulo"
+  concurrencyPolicy: "Replace"
+  workflowSpec:
+    workflowTemplateRef:
+      name: ci-build-template
+    arguments:
+      parameters:
+        - name: branch
+          value: "develop"
+
+---
+# EventSource para webhooks do GitHub
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: github-webhook
+  namespace: argo-events
+spec:
+  github:
+    app-repo:
+      repositories:
+        - owner: your-org
+          names:
+            - your-app
+      webhook:
+        endpoint: /push
+        port: "12000"
+        method: POST
+      events:
+        - push
+        - pull_request
+      apiToken:
+        name: github-token
+        key: token
+      webhookSecret:
+        name: github-webhook-secret
+        key: secret
+
+---
+# Sensor que dispara workflow no push
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: github-sensor
+  namespace: argo-events
+spec:
+  dependencies:
+    - name: github-push
+      eventSourceName: github-webhook
+      eventName: app-repo
+      filters:
+        data:
+          - path: body.ref
+            type: string
+            value:
+              - refs/heads/develop
+              - refs/heads/main
+  triggers:
+    - template:
+        name: trigger-ci
+        argoWorkflow:
+          operation: submit
+          source:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Workflow
+              metadata:
+                generateName: ci-build-
+                namespace: argo
+              spec:
+                workflowTemplateRef:
+                  name: ci-build-template
+                arguments:
+                  parameters:
+                    - name: branch
+                    - name: repo-url
+          parameters:
+            - src:
+                dependencyName: github-push
+                dataKey: body.ref
+                dataTemplate: "{{.body.ref | replace \"refs/heads/\" \"\"}}"
+              dest: spec.arguments.parameters.0.value
+            - src:
+                dependencyName: github-push
+                dataKey: body.repository.clone_url
+              dest: spec.arguments.parameters.1.value

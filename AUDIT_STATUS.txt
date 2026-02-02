@@ -36,7 +36,7 @@ Todos os módulos abaixo foram auditados e atualizados com:
 ✅ kafka.py         - Message broker
 ✅ velero.py        - Backup e restore
 ✅ secrets.py       - Sealed-secrets + External-secrets
-✅ harness.py       - CI/CD Delegate
+✅ argo.py          - Argo CD + Argo Workflows (GitOps CI/CD)
 
 ==========================================
 ARQUIVOS CRIADOS

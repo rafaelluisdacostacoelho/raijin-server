@@ -7,84 +7,138 @@ Exemplos de pipelines integrando Semgrep + Trivy + Harbor + Vault para diferente
 ```
 examples/ci-cd/
 ├── README.md (este arquivo)
-├── github-actions-tst.yml    # GitHub Actions - TST environment
-├── github-actions-prd.yml    # GitHub Actions - PRD environment
-├── gitlab-ci-tst.yml          # GitLab CI - TST environment
-├── gitlab-ci-prd.yml          # GitLab CI - PRD environment
-├── harness-pipeline-tst.yaml  # Harness - TST environment
-├── harness-pipeline-prd.yaml  # Harness - PRD environment
+├── github-actions-tst.yml     # GitHub Actions - TST environment
+├── github-actions-prd.yml     # GitHub Actions - PRD environment
+├── argocd-application.yaml    # Argo CD - GitOps Applications
+├── argo-workflow-ci.yaml      # Argo Workflows - CI Pipeline
+├── externalsecret-argo.yaml   # External Secrets para Argo
 └── semgrep-rules.yml          # Custom Semgrep rules
 
 ```
 
-## Fluxo Padrão
+## Arquitetura CI/CD
 
-### TST (Staging)
+### GitOps com Argo CD + Argo Workflows
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     GIT REPOSITORY                               │
+│  app-repo/                  infra-repo/                         │
+│  ├── src/                   ├── kubernetes/                     │
+│  ├── Dockerfile             │   ├── base/                       │
+│  └── tests/                 │   ├── overlays/tst/               │
+│                             │   └── overlays/prd/               │
+└─────────────────┬───────────────────┬───────────────────────────┘
+                  │                   │
+                  ▼                   ▼
+         ┌────────────────┐  ┌────────────────┐
+         │ Argo Workflows │  │   Argo CD      │
+         │ (CI Pipeline)  │  │  (GitOps CD)   │
+         │                │  │                │
+         │ 1. Build       │  │ 1. Sync Git    │
+         │ 2. Test        │  │ 2. Apply K8s   │
+         │ 3. Scan        │  │ 3. Health      │
+         │ 4. Push Harbor │──│ 4. Rollback    │
+         └────────────────┘  └────────────────┘
+```
+
+### Fluxo TST (Staging)
 ```
 git push develop
   ↓
-[Semgrep SAST] → Warning only
+[Argo Workflows - CI]
+  ├── Semgrep SAST → Warning only
+  ├── Unit Tests → Must pass
+  ├── Docker Build (Kaniko)
+  ├── Trivy Scan → Warning only
+  └── Push Harbor tst/
   ↓
-[Unit Tests] → Must pass
+[Argo CD - GitOps]
+  ├── Detect image change
+  ├── Auto-sync to K8s
+  └── Health check
   ↓
-[Docker Build]
-  ↓
-[Trivy Image Scan] → Warning only
-  ↓
-[Push to Harbor tst/] → harbor.asgard:30880/tst/myapp:dev-${BUILD_ID}
-  ↓
-[Deploy to K8s TST namespace]
-  ↓
-[Smoke Tests]
-  ↓
-[Notify Slack]
+[Slack Notification]
 ```
 
-### PRD (Production)
+### Fluxo PRD (Production)
 ```
 git push main
   ↓
-[Semgrep SAST] → Block if ERROR
+[Argo Workflows - CI]
+  ├── Semgrep SAST → Block if ERROR
+  ├── Full Test Suite → Must pass
+  ├── Docker Build (Kaniko)
+  ├── Trivy Scan → Block if CRITICAL
+  └── Push Harbor prd/
   ↓
-[Unit + Integration Tests] → Must pass
+[Argo CD - GitOps]
+  ├── Manual Sync Required
+  ├── Apply with diff preview
+  └── Progressive rollout
   ↓
-[Docker Build]
-  ↓
-[Trivy Image Scan] → Block if CRITICAL
-  ↓
-[Push to Harbor prd/] → harbor.asgard:30880/prd/myapp:v${VERSION}
-  ↓
-[Harbor Trivy Re-scan] → Block if CRITICAL
-  ↓
-[Manual Approval] → Required
-  ↓
-[Deploy to K8s PRD namespace] → Blue-Green
-  ↓
-[Integration Tests]
-  ↓
-[Switch Traffic]
-  ↓
-[Notify Slack + Tag Release]
+[Slack Notification + Tag]
 ```
 
 ## Secrets Management
 
-Todos os exemplos assumem que credenciais estão armazenadas no Vault e sincronizadas via External Secrets Operator:
+Todos os exemplos usam Vault + External Secrets Operator:
 
 ```bash
 # Armazenar credenciais no Vault
-kubectl -n vault exec vault-0 -- vault kv put secret/harbor/robot-tst \
-  username=robot$cicd-tst \
-  token=<HARBOR_TOKEN>
+kubectl -n vault exec vault-0 -- vault kv put secret/cicd/harbor \
+  username=robot$cicd \
+  password=<HARBOR_TOKEN>
 
-kubectl -n vault exec vault-0 -- vault kv put secret/github/actions \
-  token=<GITHUB_TOKEN>
+kubectl -n vault exec vault-0 -- vault kv put secret/cicd/github \
+  token=<GITHUB_TOKEN> \
+  webhook-secret=<WEBHOOK_SECRET>
 
-# ExternalSecret sincroniza para K8s Secret
-# Ver: ../secrets/externalsecret-harbor-robot.yaml
+kubectl -n vault exec vault-0 -- vault kv put secret/cicd/argocd \
+  admin-password=<ARGOCD_PASSWORD>
+
+# ExternalSecret sincroniza automaticamente
+kubectl apply -f externalsecret-argo.yaml
 ```
 
 ## Configuração por Plataforma
+
+### Argo CD + Argo Workflows (Recomendado)
+
+**Setup**:
+1. Instalar via raijin-server:
+   ```bash
+   sudo raijin-server -m argo
+   ```
+
+2. Configurar secrets no Vault:
+   ```bash
+   vault kv put secret/cicd/harbor username=robot password=<token>
+   vault kv put secret/cicd/github token=<pat>
+   ```
+
+3. Aplicar ExternalSecrets:
+   ```bash
+   kubectl apply -f externalsecret-argo.yaml
+   ```
+
+4. Criar Application no Argo CD:
+   ```bash
+   kubectl apply -f argocd-application.yaml
+   ```
+
+5. Criar WorkflowTemplate no Argo Workflows:
+   ```bash
+   kubectl apply -f argo-workflow-ci.yaml
+   ```
+
+**Ver**: `argocd-application.yaml`, `argo-workflow-ci.yaml`, `externalsecret-argo.yaml`
+
+**Acesso**:
+- Argo CD UI: https://argocd.local ou http://<node-ip>:30443
+- Argo Workflows UI: https://argo.local ou http://<node-ip>:30881
+
+---
 
 ### GitHub Actions
 
@@ -99,40 +153,6 @@ kubectl -n vault exec vault-0 -- vault kv put secret/github/actions \
    - `ci-prd.yml` (main branch)
 
 **Ver**: `github-actions-tst.yml`, `github-actions-prd.yml`
-
----
-
-### GitLab CI
-
-**Setup**:
-1. Adicionar CI/CD variables: Settings → CI/CD → Variables
-   - `HARBOR_USERNAME`: `robot$cicd-tst` ou `robot$cicd-prd`
-   - `HARBOR_PASSWORD`: Token (masked)
-   - `KUBECONFIG`: Base64 do kubeconfig (masked, file type)
-
-2. Adicionar `.gitlab-ci.yml` na raiz do repositório
-
-**Ver**: `gitlab-ci-tst.yml`, `gitlab-ci-prd.yml`
-
----
-
-### Harness
-
-**Setup**:
-1. Criar Connector para Harbor:
-   - Platform → Connectors → Docker Registry
-   - URL: `http://192.168.1.81:30880`
-   - Credentials: Use Vault Secret (robot account)
-
-2. Criar Connector para K8s:
-   - Platform → Connectors → Kubernetes
-   - Delegate: Use existing (installed no cluster)
-
-3. Importar pipelines YAML
-
-**Ver**: `harness-pipeline-tst.yaml`, `harness-pipeline-prd.yaml`
-
----
 
 ## Semgrep Configuration
 

@@ -28,22 +28,22 @@ Documentação completa da stack de infraestrutura, observabilidade, segurança 
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   CI/CD PIPELINE (Harness)                  │
+│                   CI/CD (Argo CD + Argo Workflows)          │
 │  ┌────────────────────────────────────────────────────┐    │
-│  │  CI Stage                                           │    │
+│  │  Argo Workflows (CI Stage)                          │    │
 │  │  1. Checkout code                                   │    │
 │  │  2. Semgrep SAST scan                              │    │
 │  │  3. Unit tests                                      │    │
-│  │  4. Docker build                                    │    │
+│  │  4. Docker build (Kaniko)                          │    │
 │  │  5. Trivy vulnerability scan                        │    │
 │  │  6. Push to Harbor (tst/prd)                       │    │
 │  └────────────────────────────────────────────────────┘    │
 │  ┌────────────────────────────────────────────────────┐    │
-│  │  CD Stage                                           │    │
-│  │  1. Get secrets from Vault                         │    │
-│  │  2. Deploy to K8s (rolling update)                 │    │
-│  │  3. Smoke tests                                     │    │
-│  │  4. Notify (Slack/Email)                           │    │
+│  │  Argo CD (GitOps CD Stage)                          │    │
+│  │  1. Sync manifests from Git                        │    │
+│  │  2. Deploy to K8s (GitOps)                         │    │
+│  │  3. Health checks                                   │    │
+│  │  4. Auto-rollback on failure                       │    │
 │  └────────────────────────────────────────────────────┘    │
 └────────────────────┬────────────────────────────────────────┘
                      │
@@ -121,7 +121,7 @@ Documentação completa da stack de infraestrutura, observabilidade, segurança 
         │ Webhook
         ▼
 ┌────────────────────────────────────────────────────────────────┐
-│                    HARNESS CI PIPELINE                         │
+│                    ARGO WORKFLOWS CI PIPELINE                  │
 │                                                                │
 │  ┌──────────────────┐  ┌──────────────────┐                  │
 │  │  Code Quality    │  │  Security Scan   │                  │
@@ -136,7 +136,7 @@ Documentação completa da stack de infraestrutura, observabilidade, segurança 
 │                      ▼                                         │
 │           ┌─────────────────────┐                             │
 │           │   Docker Build      │                             │
-│           │   • Multi-stage     │                             │
+│           │   • Kaniko          │                             │
 │           │   • Layer caching   │                             │
 │           └──────────┬──────────┘                             │
 │                      │                                         │
@@ -155,37 +155,37 @@ Documentação completa da stack de infraestrutura, observabilidade, segurança 
 │           └──────────┬──────────┘                 │           │
 └───────────────────────┼────────────────────────────┼───────────┘
                         │                            │
-                        │ Trigger CD                 │
+                        │ GitOps Sync                │
                         ▼                            │
 ┌────────────────────────────────────────────────────┼───────────┐
-│                    HARNESS CD PIPELINE             │           │
+│                    ARGO CD GITOPS DELIVERY         │           │
 │                                                    │           │
 │  ┌──────────────────────────────────────────┐    │           │
-│  │  1. Get image from Harbor                 │────┘           │
-│  │     • Verify scan status                  │                │
-│  │     • Check retention policy              │                │
+│  │  1. Sync manifests from Git              │────┘           │
+│  │     • Detect drift                        │                │
+│  │     • Apply desired state                 │                │
 │  └────────────────┬──────────────────────────┘                │
 │                   │                                            │
 │                   ▼                                            │
 │  ┌──────────────────────────────────────────┐                │
-│  │  2. Get secrets from Vault               │◄──────┐        │
-│  │     • External Secrets Operator          │       │        │
-│  │     • Sync to K8s Secrets                │       │        │
+│  │  2. Secrets via External Secrets         │◄──────┐        │
+│  │     • Sync from Vault                    │       │        │
+│  │     • Auto-refresh                        │       │        │
 │  └────────────────┬──────────────────────────┘       │        │
 │                   │                                   │        │
 │                   ▼                                   │        │
 │  ┌──────────────────────────────────────────┐       │        │
 │  │  3. Deploy to Kubernetes                 │       │        │
-│  │     • Rolling update                     │       │        │
+│  │     • Progressive rollout                │       │        │
 │  │     • Health checks                      │       │        │
-│  │     • Readiness probes                   │       │        │
+│  │     • Auto-rollback                      │       │        │
 │  └────────────────┬──────────────────────────┘       │        │
 │                   │                                   │        │
 │                   ▼                                   │        │
 │  ┌──────────────────────────────────────────┐       │        │
-│  │  4. Post-deploy validation               │       │        │
+│  │  4. Post-sync hooks                      │       │        │
 │  │     • Smoke tests                        │       │        │
-│  │     • Integration tests                  │       │        │
+│  │     • Notifications                      │       │        │
 │  └──────────────────────────────────────────┘       │        │
 └────────────────────────────────────────────────────────────────┘
                    │                                   │
@@ -346,13 +346,21 @@ Application Pods (transparent)
 
 | Componente | Versão | Finalidade | Status | Acesso |
 |------------|--------|------------|--------|--------|
-| **Harness** | CE/Enterprise | Pipeline orchestration | ⏳ Próximo | Via delegate |
+| **Argo CD** | v2.14+ | GitOps Continuous Delivery | ✅ Instalado | NodePort 30443 |
+| **Argo Workflows** | v3.6+ | CI Pipelines como K8s CRDs | ✅ Instalado | NodePort 30881 |
 | **Semgrep** | Latest | SAST code scanning | 📖 Documentado | CLI no pipeline |
 
-**Harness Delegate**:
-- Instalado no namespace `harness`
-- Conecta com Harness Cloud/On-prem
-- Executa pipelines no cluster
+**Argo CD (GitOps CD)**:
+- Instalado no namespace `argocd`
+- 100% self-hosted, CNCF Graduated
+- Sync automático de Git para K8s
+- UI: https://argocd.local ou http://<node-ip>:30443
+
+**Argo Workflows (CI)**:
+- Instalado no namespace `argo`
+- Pipelines como Kubernetes CRDs
+- Integra com MinIO para artifacts
+- UI: https://argo.local ou http://<node-ip>:30881
 
 **Semgrep Integration**:
 - Roda no CI stage
@@ -377,10 +385,10 @@ Application Pods (transparent)
      ┌───────────────┐
      │  GitHub/GitLab│
      └───────┬───────┘
-             │ Webhook
+             │ Webhook → Argo Events
              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│           HARNESS CI PIPELINE (TST)                         │
+│           ARGO WORKFLOWS CI (TST)                           │
 │                                                             │
 │  [1] Checkout develop branch                               │
 │       ↓                                                     │
@@ -392,8 +400,8 @@ Application Pods (transparent)
 │       • Unit tests                                         │
 │       • Coverage report                                    │
 │       ↓                                                     │
-│  [4] Docker build                                          │
-│       • Multi-stage build                                  │
+│  [4] Docker build (Kaniko)                                 │
+│       • No Docker daemon needed                            │
 │       • Layer caching                                      │
 │       ↓                                                     │
 │  [5] Trivy image scan                                      │
@@ -401,37 +409,34 @@ Application Pods (transparent)
 │       • Exit code: 0 (warning only)                        │
 │       ↓                                                     │
 │  [6] Docker push to Harbor                                 │
-│       • Tag: harbor.asgard:30880/tst/myapp:dev-${BUILD_ID}│
+│       • Tag: harbor.local/tst/myapp:dev-${WORKFLOW_ID}    │
 │       • Harbor auto-scan with Trivy                        │
 │       ↓                                                     │
-│  [7] Trigger CD pipeline                                   │
+│  [7] Update Git repo (image tag)                           │
 └─────────────────────────────────────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│           HARNESS CD PIPELINE (TST)                         │
+│           ARGO CD GITOPS SYNC (TST)                         │
 │                                                             │
-│  [1] Get secrets from Vault                                │
+│  [1] Detect Git change (image tag update)                  │
+│       • Auto-sync enabled for TST                          │
+│       ↓                                                     │
+│  [2] Get secrets from Vault                                │
 │       • ExternalSecret syncs to K8s Secret                 │
 │       • DB credentials, API keys, etc                      │
 │       ↓                                                     │
-│  [2] Update K8s manifests                                  │
-│       • Set image: harbor.asgard:30880/tst/myapp:dev-123   │
-│       • Set secrets references                             │
-│       ↓                                                     │
-│  [3] kubectl apply -f k8s/tst/                            │
+│  [3] Apply K8s manifests                                   │
 │       • Deployment, Service, Ingress                       │
+│       • Progressive sync                                   │
 │       ↓                                                     │
-│  [4] kubectl rollout status                                │
+│  [4] Health check                                          │
 │       • Wait for pods Ready                                │
-│       • Timeout: 5 minutes                                 │
+│       • Auto-rollback on failure                           │
 │       ↓                                                     │
-│  [5] Smoke tests                                           │
-│       • HTTP health check                                  │
-│       • Basic functionality test                           │
-│       ↓                                                     │
-│  [6] Notify                                                │
-│       • Slack: "Deploy TST success ✅"                     │
+│  [5] Post-sync hooks                                       │
+│       • Smoke tests                                        │
+│       • Slack notification                                 │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -446,10 +451,10 @@ Application Pods (transparent)
      ┌───────────────┐
      │  GitHub/GitLab│
      └───────┬───────┘
-             │ Webhook
+             │ Webhook → Argo Events
              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│           HARNESS CI PIPELINE (PRD)                         │
+│           ARGO WORKFLOWS CI (PRD)                           │
 │                                                             │
 │  [1] Checkout main branch                                  │
 │       ↓                                                     │
@@ -462,8 +467,8 @@ Application Pods (transparent)
 │       • Integration tests                                  │
 │       • Coverage threshold: 80%                            │
 │       ↓                                                     │
-│  [4] Docker build                                          │
-│       • Multi-stage build                                  │
+│  [4] Docker build (Kaniko)                                 │
+│       • No Docker daemon needed                            │
 │       • Layer caching                                      │
 │       ↓                                                     │
 │  [5] Trivy image scan (STRICT)                            │
@@ -471,7 +476,7 @@ Application Pods (transparent)
 │       • Exit code: 1 if CRITICAL found (BLOCK)             │
 │       ↓                                                     │
 │  [6] Docker push to Harbor                                 │
-│       • Tag: harbor.asgard:30880/prd/myapp:v1.2.3         │
+│       • Tag: harbor.local/prd/myapp:v1.2.3                │
 │       • Harbor auto-scan with Trivy                        │
 │       • Harbor BLOCKS if CRITICAL vulnerabilities          │
 │       ↓                                                     │
@@ -479,41 +484,39 @@ Application Pods (transparent)
 │       • Cosign sign                                        │
 │       • Content trust validation                           │
 │       ↓                                                     │
-│  [8] Trigger CD pipeline (manual approval)                │
+│  [8] Update Git repo (PRD manifest)                        │
 └─────────────────────────────────────────────────────────────┘
              │
-             ▼ (Manual approval required)
+             ▼ (Manual Sync required in Argo CD)
 ┌─────────────────────────────────────────────────────────────┐
-│           HARNESS CD PIPELINE (PRD)                         │
+│           ARGO CD GITOPS SYNC (PRD)                         │
 │                                                             │
-│  [1] Get secrets from Vault                                │
+│  [1] Manual Sync with Preview                              │
+│       • Review diff in Argo CD UI                          │
+│       • Approve deployment                                 │
+│       ↓                                                     │
+│  [2] Get secrets from Vault                                │
 │       • ExternalSecret syncs to K8s Secret                 │
 │       • Production credentials                             │
 │       ↓                                                     │
-│  [2] Update K8s manifests                                  │
-│       • Set image: harbor.asgard:30880/prd/myapp:v1.2.3   │
-│       • Set secrets references                             │
+│  [3] Apply K8s manifests (Progressive)                     │
+│       • Canary or Blue-Green via Argo Rollouts             │
 │       • Set resource limits (production values)            │
 │       ↓                                                     │
-│  [3] kubectl apply -f k8s/prd/ (Blue-Green)              │
-│       • Deploy new version (green)                         │
-│       • Keep old version running (blue)                    │
-│       ↓                                                     │
-│  [4] kubectl rollout status                                │
+│  [4] Health check                                          │
 │       • Wait for pods Ready                                │
-│       • Timeout: 10 minutes                                │
+│       • Auto-rollback on failure                           │
 │       ↓                                                     │
-│  [5] Smoke tests + Integration tests                       │
-│       • HTTP health check                                  │
-│       • Database connectivity                              │
-│       • External API calls                                 │
+│  [5] Post-sync hooks                                       │
+│       • Smoke tests                                        │
+│       • Integration tests                                  │
 │       ↓                                                     │
-│  [6] Switch traffic to green                               │
-│       • Update Service selector                            │
-│       • Monitor for 5 minutes                              │
+│  [6] Progressive rollout                                   │
+│       • Gradual traffic shift                              │
+│       • Monitor metrics                                    │
 │       ↓                                                     │
-│  [7] Cleanup blue deployment                               │
-│       • Scale down old version                             │
+│  [7] Complete rollout                                      │
+│       • 100% traffic to new version                        │
 │       ↓                                                     │
 │  [8] Notify + Tag release                                  │
 │       • Slack: "Deploy PRD success ✅ v1.2.3"             │
@@ -576,32 +579,31 @@ jobs:
           sarif_file: semgrep.sarif
 ```
 
-**Harness Pipeline**:
+**Argo Workflows Pipeline**:
 ```yaml
-# Harness CI stage
-- step:
-    type: Run
-    name: Semgrep SAST
-    identifier: semgrep_sast
-    spec:
-      shell: Bash
-      command: |
-        # Install Semgrep
-        pip install semgrep
-        
-        # Run scan
+# Argo Workflows step
+- name: semgrep-scan
+  container:
+    image: semgrep/semgrep:latest
+    command: [sh, -c]
+    args:
+      - |
         semgrep --config=auto \
           --json \
-          --output=semgrep-report.json \
+          --output=/workspace/semgrep-report.json \
           --severity=ERROR \
-          --severity=WARNING
+          --severity=WARNING \
+          /workspace/src
         
         # Check for blocking errors
-        ERRORS=$(jq '.errors | length' semgrep-report.json)
+        ERRORS=$(jq '.errors | length' /workspace/semgrep-report.json)
         if [ "$ERRORS" -gt 0 ]; then
           echo "❌ Semgrep found $ERRORS security issues"
           exit 1
         fi
+    volumeMounts:
+      - name: workspace
+        mountPath: /workspace
 ```
 
 **GitLab CI**:
@@ -687,19 +689,23 @@ trivy fs --severity HIGH,CRITICAL .
 trivy repo https://github.com/user/repo
 ```
 
-**Integração Harness**:
+**Integração Argo Workflows**:
 ```yaml
-- step:
-    type: Run
-    name: Trivy Image Scan
-    spec:
-      command: |
+- name: trivy-scan
+  container:
+    image: aquasec/trivy:latest
+    command: [sh, -c]
+    args:
+      - |
         trivy image \
           --severity CRITICAL,HIGH \
           --exit-code 1 \
           --format json \
-          --output trivy-report.json \
-          harbor.asgard:30880/tst/myapp:${BUILD_ID}
+          --output /workspace/trivy-report.json \
+          --input /workspace/image.tar
+    volumeMounts:
+      - name: workspace
+        mountPath: /workspace
 ```
 
 #### Thresholds por Ambiente
@@ -778,11 +784,11 @@ kubectl -n vault exec vault-0 -- \
 
 # Criar ExternalSecret para sincronizar
 kubectl apply -f - <<EOF
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: harbor-robot-tst
-  namespace: harness
+  namespace: argo
 spec:
   secretStoreRef:
     name: vault-backend
@@ -800,8 +806,8 @@ spec:
       property: token
 EOF
 
-# Usar no Harness pipeline
-# Secret harbor-credentials-tst disponível no namespace harness
+# Usar no Argo Workflows pipeline
+# Secret harbor-credentials-tst disponível no namespace argo
 ```
 
 ---
@@ -821,7 +827,7 @@ kubectl create secret docker-registry harbor-pull-secret \
 
 # Ou via ExternalSecret (recomendado)
 kubectl apply -f - <<EOF
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: harbor-dockerconfig
@@ -943,11 +949,11 @@ velero restore create --from-backup daily-backup-20260202 \
 4. ✅ **Observability** (já instalado)
    - `prometheus`, `grafana`, `loki`
 
-5. ✅ **Registry** (recém-instalado)
+5. ✅ **Registry** (já instalado)
    - `harbor`
 
-6. ⏳ **CI/CD** (próximo passo)
-   - `harness`
+6. ✅ **CI/CD** (já instalado)
+   - `argo` (Argo CD + Argo Workflows)
 
 ### Checklist de Produção
 
@@ -988,9 +994,10 @@ velero restore create --from-backup daily-backup-20260202 \
 - [ ] Alertas críticos testados
 
 #### CI/CD
-- [ ] Harness delegate instalado e conectado
-- [ ] Pipelines CI/CD criados (tst/prd)
-- [ ] Semgrep configurado no CI
+- [ ] Argo CD instalado e acessível
+- [ ] Argo Workflows instalado
+- [ ] Applications GitOps criadas (tst/prd)
+- [ ] Semgrep configurado no workflow
 - [ ] Trivy thresholds configurados
 - [ ] Manual approval habilitado em PRD
 - [ ] Rollback procedure documentada
@@ -1076,7 +1083,8 @@ Harbor UI → Projects → prd → Configuration
 - **Harbor**: https://goharbor.io/docs/
 - **Semgrep**: https://semgrep.dev/docs/
 - **Trivy**: https://aquasecurity.github.io/trivy/
-- **Harness**: https://docs.harness.io/
+- **Argo CD**: https://argo-cd.readthedocs.io/
+- **Argo Workflows**: https://argo-workflows.readthedocs.io/
 - **Velero**: https://velero.io/docs/
 
 ### Documentação Local
@@ -1091,8 +1099,8 @@ Harbor UI → Projects → prd → Configuration
 
 Ver pasta `examples/ci-cd/` para:
 - GitHub Actions workflows
-- GitLab CI pipelines
-- Harness pipeline examples
+- Argo CD Application examples
+- Argo Workflows CI pipelines
 - Semgrep + Trivy integration
 
 ---

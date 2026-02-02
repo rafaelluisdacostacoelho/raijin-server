@@ -17,6 +17,7 @@ from rich.table import Table
 
 from raijin_server import __version__
 from raijin_server.modules import (
+    argo,
     bootstrap,
     calico,
     cert_manager,
@@ -25,7 +26,6 @@ from raijin_server.modules import (
     full_install,
     grafana,
     harbor,
-    harness,
     hardening,
     internal_dns,
     istio,
@@ -101,7 +101,7 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "secrets": secrets.run,
     "loki": loki.run,
     "harbor": harbor.run,
-    "harness": harness.run,
+    "argo": argo.run,
     "velero": velero.run,
     "kafka": kafka.run,
     "full_install": full_install.run,
@@ -137,7 +137,7 @@ MODULE_DESCRIPTIONS: Dict[str, str] = {
     "secrets": "Secrets management (Vault + External Secrets Operator)",
     "loki": "Logs centralizados Loki",
     "harbor": "Container registry privado com vulnerability scanning",
-    "harness": "Delegate Harness via Helm",
+    "argo": "Argo CD + Argo Workflows (GitOps CI/CD 100% opensource)",
     "velero": "Backup/restore de clusters",
     "kafka": "Cluster Kafka via OCI Helm",
     "full_install": "Instalacao completa e automatizada do ambiente",

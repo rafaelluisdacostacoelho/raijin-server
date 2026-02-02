@@ -1,0 +1,184 @@
+# Argo CD Application - GitOps Deployment
+# Este exemplo mostra como configurar uma Application no Argo CD
+# para deploy automático via GitOps
+
+---
+# Application para ambiente TST (staging)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-app-tst
+  namespace: argocd
+  labels:
+    environment: tst
+    team: platform
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # Projeto Argo CD (default ou customizado)
+  project: default
+
+  # Fonte do manifesto (repositório Git)
+  source:
+    repoURL: https://github.com/your-org/your-app.git
+    targetRevision: develop  # Branch, tag ou commit
+    path: kubernetes/overlays/tst  # Path dos manifests Kustomize/Helm
+
+    # Se usar Helm:
+    # helm:
+    #   valueFiles:
+    #     - values-tst.yaml
+    #   parameters:
+    #     - name: image.tag
+    #       value: latest
+
+    # Se usar Kustomize:
+    # kustomize:
+    #   images:
+    #     - your-registry/your-app:latest
+
+  # Destino (cluster Kubernetes)
+  destination:
+    server: https://kubernetes.default.svc  # Cluster local
+    namespace: app-tst
+
+  # Política de sincronização
+  syncPolicy:
+    automated:
+      prune: true           # Remove recursos órfãos
+      selfHeal: true        # Corrige drift automaticamente
+      allowEmpty: false     # Não permite sync vazio
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignorar diferenças específicas (opcional)
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas  # Ignora mudanças no HPA
+
+---
+# Application para ambiente PRD (produção)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-app-prd
+  namespace: argocd
+  labels:
+    environment: prd
+    team: platform
+  annotations:
+    # Notificações (requer argocd-notifications)
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: platform-alerts
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: platform-alerts
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/your-org/your-app.git
+    targetRevision: main  # Apenas branch main para produção
+    path: kubernetes/overlays/prd
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app-prd
+
+  # PRD: sync manual, sem auto-prune
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+
+---
+# AppProject para isolamento de equipes
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform-team
+  namespace: argocd
+spec:
+  description: "Projeto para equipe de plataforma"
+  
+  # Repositórios permitidos
+  sourceRepos:
+    - 'https://github.com/your-org/*'
+    - 'git@github.com:your-org/*'
+
+  # Destinos permitidos
+  destinations:
+    - namespace: 'app-*'
+      server: https://kubernetes.default.svc
+    - namespace: 'platform-*'
+      server: https://kubernetes.default.svc
+
+  # Recursos permitidos (whitelist)
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: 'networking.k8s.io'
+      kind: Ingress
+
+  # Recursos proibidos (blacklist)
+  namespaceResourceBlacklist:
+    - group: ''
+      kind: Secret
+      # Força uso de ExternalSecrets
+
+  # Roles do projeto
+  roles:
+    - name: developer
+      description: "Pode sincronizar aplicações"
+      policies:
+        - p, proj:platform-team:developer, applications, sync, platform-team/*, allow
+        - p, proj:platform-team:developer, applications, get, platform-team/*, allow
+      groups:
+        - platform-developers
+
+    - name: admin
+      description: "Administrador do projeto"
+      policies:
+        - p, proj:platform-team:admin, applications, *, platform-team/*, allow
+        - p, proj:platform-team:admin, repositories, *, platform-team/*, allow
+      groups:
+        - platform-admins
+
+---
+# Repository credentials (se repo privado)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-repo-creds
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  type: git
+  url: https://github.com/your-org
+  # Usar token do Vault via ExternalSecret (veja externalsecret-argocd.yaml)
+  # password: <from-vault>
+  # username: git
+
+---
+# Webhook para GitHub (trigger automático no push)
+# Configure no GitHub: Settings -> Webhooks -> Add webhook
+# Payload URL: https://argocd.local/api/webhook
+# Content type: application/json
+# Secret: (definido no argocd-secret)
+# Events: Push events, Pull request events
