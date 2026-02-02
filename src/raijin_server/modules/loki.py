@@ -103,6 +103,15 @@ def run(ctx: ExecutionContext) -> None:
 
     retention_hours = typer.prompt("Retencao de logs em horas", default="168")
     persistence_size = typer.prompt("Tamanho do storage", default="20Gi")
+    
+    # NodePort para acesso via VPN
+    enable_nodeport = typer.confirm(
+        "Habilitar NodePort para acesso via VPN?",
+        default=True
+    )
+    nodeport_port = 30310
+    if enable_nodeport:
+        nodeport_port = int(typer.prompt("Porta NodePort", default="30310"))
 
     node_name = _detect_node_name(ctx)
 
@@ -147,6 +156,15 @@ promtail:
       memory: 256Mi
 """
 
+    # Adiciona NodePort se habilitado
+    if enable_nodeport:
+        values_yaml += f"""
+loki:
+  service:
+    type: NodePort
+    nodePort: {nodeport_port}
+"""
+
     values_path = Path("/tmp/raijin-loki-values.yaml")
     write_file(values_path, values_yaml, ctx)
 
@@ -167,7 +185,13 @@ promtail:
         _wait_for_loki_ready(ctx)
 
     typer.secho("\n✓ Loki Stack instalado com sucesso.", fg=typer.colors.GREEN, bold=True)
-    typer.echo("\nPara acessar Loki via port-forward:")
-    typer.echo("  kubectl -n observability port-forward svc/loki 3100:3100")
-    typer.echo("\nPara verificar logs:")
-    typer.echo("  curl http://localhost:3100/ready")
+    
+    if enable_nodeport:
+        typer.secho("\n🔒 Acesso via VPN + NodePort:", fg=typer.colors.CYAN, bold=True)
+        typer.echo(f"\n  curl http://<VPN_SERVER_IP>:{nodeport_port}/ready")
+        typer.echo(f"\n  Exemplo: curl http://10.8.0.1:{nodeport_port}/ready")
+    else:
+        typer.echo("\nPara acessar Loki via port-forward:")
+        typer.echo("  kubectl -n observability port-forward svc/loki 3100:3100")
+        typer.echo("\nPara verificar logs:")
+        typer.echo("  curl http://localhost:3100/ready")

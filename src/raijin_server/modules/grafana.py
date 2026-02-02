@@ -393,9 +393,18 @@ def run(ctx: ExecutionContext) -> None:
 
     admin_password = typer.prompt("Senha admin do Grafana", default="admin")
     
+    # NodePort para acesso via VPN (recomendado)
+    enable_nodeport = typer.confirm(
+        "Habilitar NodePort para acesso via VPN?",
+        default=True
+    )
+    nodeport_port = 30030
+    if enable_nodeport:
+        nodeport_port = int(typer.prompt("Porta NodePort", default="30030"))
+    
     # Ingress público não é recomendado para ferramentas de observabilidade
     enable_ingress = typer.confirm(
-        "Habilitar ingress público? (NÃO recomendado - use VPN + port-forward)",
+        "Habilitar ingress público? (NÃO recomendado - use VPN + NodePort)",
         default=False
     )
     
@@ -439,9 +448,16 @@ def run(ctx: ExecutionContext) -> None:
             persistence_yaml += f"""
   storageClassName: {storage_class}"""
     
+    service_type = "NodePort" if enable_nodeport else "ClusterIP"
     values_yaml = f"""adminPassword: {admin_password}
 service:
-  type: ClusterIP
+  type: {service_type}"""
+    
+    if enable_nodeport:
+        values_yaml += f"""
+  nodePort: {nodeport_port}"""
+    
+    values_yaml += f"""
 ingress:
   enabled: {str(enable_ingress).lower()}"""
     
@@ -540,15 +556,18 @@ dashboards:
     
     if enable_ingress:
         typer.echo(f"\nAcesse: https://{ingress_host}")
-    else:
-        typer.secho("\n🔒 Acesso Seguro via VPN + Port-Forward:", fg=typer.colors.CYAN, bold=True)
+    elif enable_nodeport:
+        typer.secho("\n🔒 Acesso via VPN + NodePort:", fg=typer.colors.CYAN, bold=True)
         typer.echo("\n1. Configure VPN (se ainda não tiver):")
         typer.echo("   sudo raijin vpn")
         typer.echo("\n2. Conecte via WireGuard no seu Windows/Mac")
-        typer.echo("\n3. Faça port-forward local:")
-        typer.echo("   kubectl -n observability port-forward svc/grafana 3000:80")
-        typer.echo("\n4. Acesse no navegador:")
-        typer.echo("   http://localhost:3000")
+        typer.echo("\n3. Acesse no navegador (IP da VPN):")
+        typer.echo(f"   http://<VPN_SERVER_IP>:{nodeport_port}")
+        typer.echo("\n   Exemplo: http://10.8.0.1:{}".format(nodeport_port))
+    else:
+        typer.secho("\n🔒 Acesso via Port-Forward:", fg=typer.colors.CYAN, bold=True)
+        typer.echo("\n  kubectl -n observability port-forward svc/grafana 3000:80")
+        typer.echo("\n  Acesse: http://localhost:3000")
     
     typer.echo("\nUsuario: admin")
     typer.echo(f"Senha: {admin_password}")

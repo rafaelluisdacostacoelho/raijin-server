@@ -428,6 +428,17 @@ def run(ctx: ExecutionContext) -> None:
     enable_persistence = typer.confirm(
         "Habilitar PVC para Prometheus e Alertmanager?", default=bool(default_sc)
     )
+    
+    # NodePort para acesso via VPN
+    enable_nodeport = typer.confirm(
+        "Habilitar NodePort para acesso via VPN?",
+        default=True
+    )
+    prometheus_nodeport = 30090
+    alertmanager_nodeport = 30093
+    if enable_nodeport:
+        prometheus_nodeport = int(typer.prompt("Porta NodePort para Prometheus", default="30090"))
+        alertmanager_nodeport = int(typer.prompt("Porta NodePort para Alertmanager", default="30093"))
 
     # Se habilitou PVC, garante que existe StorageClass disponivel
     if enable_persistence:
@@ -488,8 +499,15 @@ def run(ctx: ExecutionContext) -> None:
         f"prometheus.prometheusSpec.nodeSelector.kubernetes\\.io/hostname={node_name}",
         f"alertmanager.alertmanagerSpec.nodeSelector.kubernetes\\.io/hostname={node_name}",
         f"prometheusOperator.nodeSelector.kubernetes\\.io/hostname={node_name}",
-    ]
-
+    ]    
+    # NodePort para acesso via VPN
+    if enable_nodeport:
+        values.extend([
+            "prometheus.service.type=NodePort",
+            f"prometheus.service.nodePort={prometheus_nodeport}",
+            "alertmanager.service.type=NodePort",
+            f"alertmanager.service.nodePort={alertmanager_nodeport}",
+        ])
     extra_args = ["--wait", "--timeout", "10m", "--atomic"]
 
     chart_version = typer.prompt(
@@ -542,7 +560,18 @@ def run(ctx: ExecutionContext) -> None:
         _wait_for_prometheus_ready(ctx, namespace)
 
     typer.secho("\n✓ kube-prometheus-stack instalado com sucesso.", fg=typer.colors.GREEN, bold=True)
-    typer.echo("\nPara acessar Prometheus via port-forward:")
-    typer.echo(f"  kubectl -n {namespace} port-forward svc/kube-prometheus-stack-prometheus 9090:9090")
-    typer.echo("\nPara acessar Alertmanager via port-forward:")
-    typer.echo(f"  kubectl -n {namespace} port-forward svc/kube-prometheus-stack-alertmanager 9093:9093")
+    
+    if enable_nodeport:
+        typer.secho("\n🔒 Acesso via VPN + NodePort:", fg=typer.colors.CYAN, bold=True)
+        typer.echo("\n1. Configure VPN: sudo raijin vpn")
+        typer.echo("2. Conecte via WireGuard")
+        typer.echo("\nPrometheus:")
+        typer.echo(f"   http://<VPN_SERVER_IP>:{prometheus_nodeport}")
+        typer.echo("\nAlertmanager:")
+        typer.echo(f"   http://<VPN_SERVER_IP>:{alertmanager_nodeport}")
+        typer.echo("\nExemplo: http://10.8.0.1:{} (Prometheus)".format(prometheus_nodeport))
+    else:
+        typer.echo("\nPara acessar Prometheus via port-forward:")
+        typer.echo(f"  kubectl -n {namespace} port-forward svc/kube-prometheus-stack-prometheus 9090:9090")
+        typer.echo("\nPara acessar Alertmanager via port-forward:")
+        typer.echo(f"  kubectl -n {namespace} port-forward svc/kube-prometheus-stack-alertmanager 9093:9093")

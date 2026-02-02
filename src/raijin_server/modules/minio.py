@@ -449,6 +449,18 @@ def run(ctx: ExecutionContext) -> None:
     
     enable_console = typer.confirm("Habilitar Console Web?", default=True)
     
+    # NodePort para acesso via VPN
+    enable_nodeport = typer.confirm(
+        "Habilitar NodePort para acesso via VPN?",
+        default=True
+    )
+    api_nodeport = 30900
+    console_nodeport = 30901
+    if enable_nodeport:
+        api_nodeport = int(typer.prompt("Porta NodePort para API S3", default="30900"))
+        if enable_console:
+            console_nodeport = int(typer.prompt("Porta NodePort para Console", default="30901"))
+    
     node_name = _detect_node_name(ctx)
     
     values = [
@@ -486,12 +498,26 @@ def run(ctx: ExecutionContext) -> None:
     if is_distributed:
         values.append(f"replicas={replicas}")
     
+    # Service type (NodePort ou ClusterIP)
+    if enable_nodeport:
+        values.extend([
+            "service.type=NodePort",
+            f"service.nodePort={api_nodeport}",
+        ])
+    
     # Console
     if enable_console:
-        values.extend([
-            "consoleService.type=ClusterIP",
-            "consoleIngress.enabled=false",
-        ])
+        if enable_nodeport:
+            values.extend([
+                "consoleService.type=NodePort",
+                f"consoleService.nodePort={console_nodeport}",
+                "consoleIngress.enabled=false",
+            ])
+        else:
+            values.extend([
+                "consoleService.type=ClusterIP",
+                "consoleIngress.enabled=false",
+            ])
     
     helm_upgrade_install(
         release="minio",
@@ -514,14 +540,21 @@ def run(ctx: ExecutionContext) -> None:
     typer.echo(f"  Root Password: {root_password}")
     
     if enable_console:
-        typer.secho("\n🔒 Acesso Seguro ao MinIO Console via VPN:", fg=typer.colors.CYAN, bold=True)
-        typer.echo("\n1. Configure VPN (se ainda não tiver):")
-        typer.echo("   sudo raijin vpn")
-        typer.echo("\n2. Conecte via WireGuard")
-        typer.echo("\n3. Faça port-forward:")
-        typer.echo("   kubectl -n minio port-forward svc/minio-console 9001:9001")
-        typer.echo("\n4. Acesse no navegador:")
-        typer.echo("   http://localhost:9001")
+        if enable_nodeport:
+            typer.secho("\n🔒 Acesso ao MinIO Console via VPN:", fg=typer.colors.CYAN, bold=True)
+            typer.echo("\n1. Configure VPN (se ainda não tiver):")
+            typer.echo("   sudo raijin vpn")
+            typer.echo("\n2. Conecte via WireGuard")
+            typer.echo("\n3. Acesse no navegador (IP da VPN):")
+            typer.echo(f"   http://<VPN_SERVER_IP>:{console_nodeport}")
+            typer.echo("\n   Exemplo: http://10.8.0.1:{}".format(console_nodeport))
+        else:
+            typer.secho("\n🔒 Acesso via Port-Forward:", fg=typer.colors.CYAN, bold=True)
+            typer.echo("\n  kubectl -n minio port-forward svc/minio-console 9001:9001")
+            typer.echo("\n  Acesse: http://localhost:9001")
     
-    typer.echo("\nPara acessar a API S3 (port-forward):")
-    typer.echo("  kubectl -n minio port-forward svc/minio 9000:9000")
+    if enable_nodeport:
+        typer.echo(f"\nAPI S3 via VPN: http://<VPN_SERVER_IP>:{api_nodeport}")
+    else:
+        typer.echo("\nPara acessar a API S3 (port-forward):")
+        typer.echo("  kubectl -n minio port-forward svc/minio 9000:9000")
