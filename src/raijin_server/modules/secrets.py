@@ -24,6 +24,7 @@ from raijin_server.utils import (
     run_cmd,
     write_file,
 )
+from raijin_server.minio_utils import get_or_create_minio_user
 
 VAULT_NAMESPACE = "vault"
 ESO_NAMESPACE = "external-secrets"
@@ -124,35 +125,17 @@ def _wait_for_pods_ready(ctx: ExecutionContext, namespace: str, label: str, time
 
 
 def _get_minio_credentials(ctx: ExecutionContext) -> tuple[str, str]:
-    """Obtem credenciais do MinIO do Secret do K8s."""
-    typer.echo("Obtendo credenciais do MinIO...")
+    """Obtem ou cria credenciais específicas do MinIO para Vault.
     
-    # Tenta obter do secret minio-credentials no namespace minio
-    result = run_cmd(
-        ["kubectl", "-n", "minio", "get", "secret", "minio-credentials", "-o", "jsonpath={.data.accesskey}"],
-        ctx,
-        check=False,
+    Esta função cria um usuário MinIO dedicado para o Vault com acesso
+    restrito apenas ao bucket 'vault-storage'.
+    """
+    return get_or_create_minio_user(
+        ctx=ctx,
+        app_name="vault",
+        buckets=["vault-storage"],
+        namespace=VAULT_NAMESPACE,
     )
-    
-    if result.returncode == 0 and result.stdout:
-        access_key = base64.b64decode(result.stdout.strip()).decode("utf-8")
-        
-        result = run_cmd(
-            ["kubectl", "-n", "minio", "get", "secret", "minio-credentials", "-o", "jsonpath={.data.secretkey}"],
-            ctx,
-            check=False,
-        )
-        
-        if result.returncode == 0 and result.stdout:
-            secret_key = base64.b64decode(result.stdout.strip()).decode("utf-8")
-            return access_key, secret_key
-    
-    # Fallback para prompt manual
-    typer.secho("Não foi possível obter credenciais automaticamente.", fg=typer.colors.YELLOW)
-    access_key = typer.prompt("MinIO Access Key", default="thor")
-    secret_key = typer.prompt("MinIO Secret Key", default="rebel1on", hide_input=True)
-    
-    return access_key, secret_key
 
 
 def _initialize_vault(ctx: ExecutionContext, vault_ns: str, node_ip: str) -> tuple[str, list[str]]:
@@ -410,16 +393,8 @@ def run(ctx: ExecutionContext) -> None:
         if cleanup:
             _uninstall_vault(ctx, vault_ns)
 
-    # Cria bucket no MinIO para Vault storage
-    typer.echo("\nCriando bucket 'vault-storage' no MinIO...")
-    run_cmd(
-        [
-            "mc", "mb", "--ignore-existing", 
-            f"minio/vault-storage"
-        ],
-        ctx,
-        check=False,
-    )
+    # Credenciais são obtidas automaticamente via get_or_create_minio_user
+    # que já cria o bucket 'vault-storage' e o usuário 'vault-user'
 
     vault_values_yaml = f"""server:
   ha:

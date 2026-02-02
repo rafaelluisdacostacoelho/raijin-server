@@ -24,7 +24,6 @@ __all__ = [
     "vpn",
     "vpn_client",
     "internal_dns",
-    "apokolips_demo",
     "cert_manager",
     "secrets",
     "full_install",
@@ -32,5 +31,5 @@ __all__ = [
 
 from raijin_server.modules import calico, essentials, firewall, grafana, harbor, harness, hardening, istio
 from raijin_server.modules import kafka, kong, kubernetes, loki, minio, network
-from raijin_server.modules import prometheus, traefik, velero, apokolips_demo, secrets, cert_manager
+from raijin_server.modules import prometheus, traefik, velero, secrets, cert_manager
 from raijin_server.modules import bootstrap, full_install, sanitize, ssh_hardening, vpn, vpn_client, internal_dns

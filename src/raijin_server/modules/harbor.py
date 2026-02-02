@@ -25,6 +25,7 @@ from raijin_server.utils import (
     run_cmd,
     write_file,
 )
+from raijin_server.minio_utils import get_or_create_minio_user
 
 HARBOR_NAMESPACE = "harbor"
 
@@ -65,34 +66,17 @@ def _uninstall_harbor(ctx: ExecutionContext, namespace: str) -> None:
 
 
 def _get_minio_credentials(ctx: ExecutionContext) -> tuple[str, str]:
-    """Obtem credenciais do MinIO do Secret do K8s."""
-    typer.echo("Obtendo credenciais do MinIO...")
+    """Obtem ou cria credenciais específicas do MinIO para Harbor.
     
-    result = run_cmd(
-        ["kubectl", "-n", "minio", "get", "secret", "minio-credentials", "-o", "jsonpath={.data.accesskey}"],
-        ctx,
-        check=False,
+    Esta função cria um usuário MinIO dedicado para o Harbor com acesso
+    restrito apenas aos buckets: harbor-registry, harbor-chartmuseum, harbor-jobservice.
+    """
+    return get_or_create_minio_user(
+        ctx=ctx,
+        app_name="harbor",
+        buckets=["harbor-registry", "harbor-chartmuseum", "harbor-jobservice"],
+        namespace=HARBOR_NAMESPACE,
     )
-    
-    if result.returncode == 0 and result.stdout:
-        access_key = base64.b64decode(result.stdout.strip()).decode("utf-8")
-        
-        result = run_cmd(
-            ["kubectl", "-n", "minio", "get", "secret", "minio-credentials", "-o", "jsonpath={.data.secretkey}"],
-            ctx,
-            check=False,
-        )
-        
-        if result.returncode == 0 and result.stdout:
-            secret_key = base64.b64decode(result.stdout.strip()).decode("utf-8")
-            return access_key, secret_key
-    
-    # Fallback para prompt manual
-    typer.secho("Não foi possível obter credenciais automaticamente.", fg=typer.colors.YELLOW)
-    access_key = typer.prompt("MinIO Access Key", default="thor")
-    secret_key = typer.prompt("MinIO Secret Key", default="rebel1on", hide_input=True)
-    
-    return access_key, secret_key
 
 
 def _wait_for_pods_ready(ctx: ExecutionContext, namespace: str, timeout: int = 300) -> bool:

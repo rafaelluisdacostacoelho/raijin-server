@@ -17,7 +17,6 @@ from rich.table import Table
 
 from raijin_server import __version__
 from raijin_server.modules import (
-    apokolips_demo,
     bootstrap,
     calico,
     cert_manager,
@@ -98,7 +97,7 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "minio": minio.run,
     "prometheus": prometheus.run,
     "grafana": grafana.run,
-    "apokolips_demo": apokolips_demo.run,
+
     "secrets": secrets.run,
     "loki": loki.run,
     "harbor": harbor.run,
@@ -134,7 +133,7 @@ MODULE_DESCRIPTIONS: Dict[str, str] = {
     "minio": "Objeto storage S3-compat via Helm",
     "prometheus": "Stack kube-prometheus",
     "grafana": "Dashboards e datasource Prometheus",
-    "apokolips_demo": "Landing page Apokolips para testar ingress externo",
+
     "secrets": "Secrets management (Vault + External Secrets Operator)",
     "loki": "Logs centralizados Loki",
     "harbor": "Container registry privado com vulnerability scanning",
@@ -550,11 +549,6 @@ def prometheus(ctx: typer.Context) -> None:
 @app.command()
 def grafana(ctx: typer.Context) -> None:
     _run_module(ctx, "grafana")
-
-
-@app.command(name="apokolips-demo")
-def apokolips_demo_cmd(ctx: typer.Context) -> None:
-    _run_module(ctx, "apokolips_demo")
 
 
 @app.command()

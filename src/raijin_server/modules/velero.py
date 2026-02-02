@@ -1,10 +1,46 @@
 """Backup e restore com Velero (production-ready)."""
 
 import time
+from pathlib import Path
 
 import typer
 
 from raijin_server.utils import ExecutionContext, ensure_tool, require_root, run_cmd
+from raijin_server.minio_utils import get_or_create_minio_user
+
+
+def _create_velero_credentials_file(ctx: ExecutionContext) -> str:
+    """Cria arquivo de credenciais para Velero com usuário MinIO dedicado.
+    
+    Returns:
+        Caminho para o arquivo de credenciais
+    """
+    typer.echo("\nConfigurando credenciais MinIO para Velero...")
+    
+    # Cria usuário MinIO específico para Velero
+    access_key, secret_key = get_or_create_minio_user(
+        ctx=ctx,
+        app_name="velero",
+        buckets=["velero-backups"],
+        namespace="velero",
+    )
+    
+    # Cria arquivo de credenciais no formato esperado pelo Velero
+    credentials_path = Path("/etc/velero/credentials")
+    credentials_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    credentials_content = f"""[default]
+aws_access_key_id = {access_key}
+aws_secret_access_key = {secret_key}
+"""
+    
+    if not ctx.dry_run:
+        credentials_path.write_text(credentials_content)
+        # Protege o arquivo
+        credentials_path.chmod(0o600)
+        typer.secho(f"  ✓ Credenciais salvas em {credentials_path}", fg=typer.colors.GREEN)
+    
+    return str(credentials_path)
 
 
 def _check_existing_velero(ctx: ExecutionContext) -> bool:
@@ -91,8 +127,19 @@ def run(ctx: ExecutionContext) -> None:
     provider = typer.prompt("Provider (aws, azure, gcp)", default="aws")
     bucket = typer.prompt("Bucket para backups", default="velero-backups")
     region = typer.prompt("Region", default="us-east-1")
-    s3_url = typer.prompt("S3 URL (para MinIO usar http://minio.minio.svc:9000)", default="https://s3.amazonaws.com")
-    secret_file = typer.prompt("Arquivo de credenciais (secret-file)", default="/etc/velero/credentials")
+    s3_url = typer.prompt("S3 URL (para MinIO usar http://minio.minio.svc:9000)", default="http://minio.minio.svc:9000")
+    
+    # Cria credenciais automaticamente usando usuário MinIO dedicado
+    use_auto_credentials = typer.confirm(
+        "Criar credenciais MinIO automaticamente (usuário dedicado)?",
+        default=True,
+    )
+    
+    if use_auto_credentials:
+        secret_file = _create_velero_credentials_file(ctx)
+    else:
+        secret_file = typer.prompt("Arquivo de credenciais (secret-file)", default="/etc/velero/credentials")
+    
     use_restic = typer.confirm("Habilitar Restic/Kopia para backups de PV?", default=True)
     schedule = typer.prompt("Schedule cron para backups (ex: '0 2 * * *')", default="0 2 * * *")
 
