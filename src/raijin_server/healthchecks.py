@@ -375,8 +375,370 @@ HEALTH_CHECKS = {
     "kafka": lambda ctx: verify_helm_chart("kafka", "kafka", ctx),
     "cert_manager": verify_cert_manager,
     "secrets": verify_secrets,
-
 }
+
+
+# =============================================================================
+# STATUS VALIDATION - Validação em tempo real para o menu interativo
+# =============================================================================
+
+def _quick_cmd(cmd: list[str], timeout: int = 5) -> tuple[bool, str]:
+    """Executa comando rápido e retorna (sucesso, output)."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return result.returncode == 0, result.stdout.strip()
+    except Exception as e:
+        return False, str(e)
+
+
+def _check_namespace_exists(ns: str) -> bool:
+    """Verifica se namespace existe."""
+    ok, _ = _quick_cmd(["kubectl", "get", "ns", ns])
+    return ok
+
+
+def _check_pods_running(ns: str) -> tuple[bool, bool]:
+    """Retorna (existe, todos_running)."""
+    if not _check_namespace_exists(ns):
+        return False, False
+    ok, out = _quick_cmd(["kubectl", "get", "pods", "-n", ns, "-o", "jsonpath={.items[*].status.phase}"])
+    if not ok or not out:
+        return True, False  # ns existe mas sem pods ou erro
+    phases = out.split()
+    all_ok = all(p in ("Running", "Succeeded") for p in phases)
+    return True, all_ok
+
+
+def _check_helm_deployed(release: str, ns: str) -> tuple[bool, bool]:
+    """Retorna (existe, deployed)."""
+    ok, out = _quick_cmd(["helm", "status", release, "-n", ns, "--output", "json"], timeout=10)
+    if not ok:
+        return False, False
+    try:
+        import json
+        data = json.loads(out)
+        status = data.get("info", {}).get("status", "")
+        return True, status == "deployed"
+    except Exception:
+        return False, False
+
+
+def _check_systemd_active(service: str) -> bool:
+    """Verifica se serviço systemd está ativo."""
+    ok, out = _quick_cmd(["systemctl", "is-active", service])
+    return ok and out == "active"
+
+
+def _check_crd_exists(crd: str) -> bool:
+    """Verifica se CRD existe."""
+    ok, _ = _quick_cmd(["kubectl", "get", "crd", crd])
+    return ok
+
+
+def _check_cluster_secret_store() -> tuple[bool, bool]:
+    """Verifica ClusterSecretStore. Retorna (existe, ready)."""
+    ok, out = _quick_cmd(["kubectl", "get", "clustersecretstore", "-o", "jsonpath={.items[*].status.conditions[?(@.type=='Ready')].status}"])
+    if not ok:
+        return False, False
+    return True, "True" in out
+
+
+# Status: "ok" = ✓, "error" = ✗, "not_installed" = -
+ModuleStatus = str  # "ok" | "error" | "not_installed"
+
+
+def validate_module_status(module: str) -> ModuleStatus:
+    """Valida status de um módulo em tempo real."""
+    validators = {
+        "sanitize": _validate_sanitize,
+        "bootstrap": _validate_bootstrap,
+        "ssh_hardening": _validate_ssh_hardening,
+        "hardening": _validate_hardening,
+        "network": _validate_network,
+        "essentials": _validate_essentials,
+        "firewall": _validate_firewall,
+        "vpn": _validate_vpn,
+        "vpn_client": _validate_vpn_client,
+        "internal_dns": _validate_internal_dns,
+        "kubernetes": _validate_kubernetes,
+        "calico": _validate_calico,
+        "metallb": _validate_metallb,
+        "traefik": _validate_traefik,
+        "cert_manager": _validate_cert_manager,
+        "istio": _validate_istio,
+        "kong": _validate_kong,
+        "minio": _validate_minio,
+        "prometheus": _validate_prometheus,
+        "grafana": _validate_grafana,
+        "secrets": _validate_secrets,
+        "loki": _validate_loki,
+        "harbor": _validate_harbor,
+        "harness": _validate_harness,
+        "velero": _validate_velero,
+        "kafka": _validate_kafka,
+        "full_install": _validate_full_install,
+    }
+    
+    validator = validators.get(module)
+    if validator:
+        try:
+            return validator()
+        except Exception:
+            return "error"
+    return "not_installed"
+
+
+def _validate_sanitize() -> ModuleStatus:
+    # Sanitize é idempotente, consideramos OK se bootstrap/k8s estiver funcionando
+    return "ok"
+
+
+def _validate_bootstrap() -> ModuleStatus:
+    # Verifica se ferramentas estão instaladas
+    tools = ["helm", "kubectl", "containerd"]
+    for tool in tools:
+        ok, _ = _quick_cmd(["which", tool])
+        if not ok:
+            return "not_installed"
+    return "ok"
+
+
+def _validate_ssh_hardening() -> ModuleStatus:
+    # Verifica se SSH está rodando
+    if _check_systemd_active("ssh") or _check_systemd_active("sshd"):
+        return "ok"
+    return "not_installed"
+
+
+def _validate_hardening() -> ModuleStatus:
+    if _check_systemd_active("fail2ban"):
+        return "ok"
+    return "not_installed"
+
+
+def _validate_network() -> ModuleStatus:
+    # Verifica se hostname está configurado
+    ok, hostname = _quick_cmd(["hostname"])
+    if ok and hostname:
+        return "ok"
+    return "not_installed"
+
+
+def _validate_essentials() -> ModuleStatus:
+    # Verifica NTP
+    ok, out = _quick_cmd(["timedatectl", "show", "-p", "NTP", "--value"])
+    if ok and out == "yes":
+        return "ok"
+    return "not_installed"
+
+
+def _validate_firewall() -> ModuleStatus:
+    if _check_systemd_active("ufw"):
+        return "ok"
+    return "not_installed"
+
+
+def _validate_vpn() -> ModuleStatus:
+    if _check_systemd_active("wg-quick@wg0"):
+        return "ok"
+    return "not_installed"
+
+
+def _validate_vpn_client() -> ModuleStatus:
+    # VPN client é gerenciado pelo VPN module
+    if _check_systemd_active("wg-quick@wg0"):
+        return "ok"
+    return "not_installed"
+
+
+def _validate_internal_dns() -> ModuleStatus:
+    # Verifica se CoreDNS custom config existe
+    ok, _ = _quick_cmd(["kubectl", "get", "configmap", "coredns-custom", "-n", "kube-system"])
+    if ok:
+        return "ok"
+    return "not_installed"
+
+
+def _validate_kubernetes() -> ModuleStatus:
+    if not _check_systemd_active("kubelet"):
+        return "not_installed"
+    if not _check_systemd_active("containerd"):
+        return "error"
+    # Verifica se node está ready
+    ok, out = _quick_cmd(["kubectl", "get", "nodes", "-o", "jsonpath={.items[0].status.conditions[?(@.type=='Ready')].status}"])
+    if ok and "True" in out:
+        return "ok"
+    return "error"
+
+
+def _validate_calico() -> ModuleStatus:
+    exists, running = _check_pods_running("kube-system")
+    if not exists:
+        return "not_installed"
+    # Verifica se calico-node está rodando
+    ok, out = _quick_cmd(["kubectl", "get", "pods", "-n", "kube-system", "-l", "k8s-app=calico-node", "-o", "jsonpath={.items[*].status.phase}"])
+    if ok and out and "Running" in out:
+        return "ok"
+    return "not_installed"
+
+
+def _validate_metallb() -> ModuleStatus:
+    exists, running = _check_pods_running("metallb-system")
+    if not exists:
+        return "not_installed"
+    if running:
+        return "ok"
+    return "error"
+
+
+def _validate_traefik() -> ModuleStatus:
+    exists, deployed = _check_helm_deployed("traefik", "traefik")
+    if not exists:
+        return "not_installed"
+    _, running = _check_pods_running("traefik")
+    if deployed and running:
+        return "ok"
+    return "error"
+
+
+def _validate_cert_manager() -> ModuleStatus:
+    exists, deployed = _check_helm_deployed("cert-manager", "cert-manager")
+    if not exists:
+        return "not_installed"
+    _, running = _check_pods_running("cert-manager")
+    if deployed and running:
+        return "ok"
+    return "error"
+
+
+def _validate_istio() -> ModuleStatus:
+    exists, running = _check_pods_running("istio-system")
+    if not exists:
+        return "not_installed"
+    if running:
+        return "ok"
+    return "error"
+
+
+def _validate_kong() -> ModuleStatus:
+    exists, deployed = _check_helm_deployed("kong", "kong")
+    if not exists:
+        return "not_installed"
+    _, running = _check_pods_running("kong")
+    if deployed and running:
+        return "ok"
+    return "error"
+
+
+def _validate_minio() -> ModuleStatus:
+    exists, deployed = _check_helm_deployed("minio", "minio")
+    if not exists:
+        return "not_installed"
+    _, running = _check_pods_running("minio")
+    if deployed and running:
+        return "ok"
+    return "error"
+
+
+def _validate_prometheus() -> ModuleStatus:
+    exists, deployed = _check_helm_deployed("kube-prometheus-stack", "observability")
+    if not exists:
+        return "not_installed"
+    ok, out = _quick_cmd(["kubectl", "get", "pods", "-n", "observability", "-l", "app.kubernetes.io/name=prometheus", "-o", "jsonpath={.items[*].status.phase}"])
+    if ok and out and "Running" in out:
+        return "ok"
+    if exists:
+        return "error"
+    return "not_installed"
+
+
+def _validate_grafana() -> ModuleStatus:
+    ok, out = _quick_cmd(["kubectl", "get", "pods", "-n", "observability", "-l", "app.kubernetes.io/name=grafana", "-o", "jsonpath={.items[*].status.phase}"])
+    if ok and out and "Running" in out:
+        return "ok"
+    return "not_installed"
+
+
+def _validate_secrets() -> ModuleStatus:
+    # Verifica Vault
+    exists_vault, running_vault = _check_pods_running("vault")
+    # Verifica External Secrets
+    exists_eso, running_eso = _check_pods_running("external-secrets")
+    # Verifica ClusterSecretStore
+    css_exists, css_ready = _check_cluster_secret_store()
+    
+    if not exists_vault and not exists_eso:
+        return "not_installed"
+    
+    if exists_vault and exists_eso and css_exists:
+        if running_vault and running_eso and css_ready:
+            return "ok"
+        return "error"
+    
+    return "not_installed"
+
+
+def _validate_loki() -> ModuleStatus:
+    exists, deployed = _check_helm_deployed("loki", "observability")
+    if not exists:
+        return "not_installed"
+    ok, out = _quick_cmd(["kubectl", "get", "pods", "-n", "observability", "-l", "app.kubernetes.io/name=loki", "-o", "jsonpath={.items[*].status.phase}"])
+    if ok and out and "Running" in out:
+        return "ok"
+    return "error"
+
+
+def _validate_harbor() -> ModuleStatus:
+    exists, deployed = _check_helm_deployed("harbor", "harbor")
+    if not exists:
+        return "not_installed"
+    _, running = _check_pods_running("harbor")
+    if deployed and running:
+        return "ok"
+    return "error"
+
+
+def _validate_harness() -> ModuleStatus:
+    exists, running = _check_pods_running("harness")
+    if not exists:
+        return "not_installed"
+    if running:
+        return "ok"
+    return "error"
+
+
+def _validate_velero() -> ModuleStatus:
+    exists, deployed = _check_helm_deployed("velero", "velero")
+    if not exists:
+        return "not_installed"
+    _, running = _check_pods_running("velero")
+    if deployed and running:
+        return "ok"
+    return "error"
+
+
+def _validate_kafka() -> ModuleStatus:
+    exists, deployed = _check_helm_deployed("kafka", "kafka")
+    if not exists:
+        return "not_installed"
+    _, running = _check_pods_running("kafka")
+    if deployed and running:
+        return "ok"
+    return "error"
+
+
+def _validate_full_install() -> ModuleStatus:
+    # Full install é um meta-módulo
+    return "ok"
+
+
+def get_all_module_statuses() -> dict[str, ModuleStatus]:
+    """Retorna o status de todos os módulos."""
+    from raijin_server.cli import MODULES
+    statuses = {}
+    for module in MODULES.keys():
+        statuses[module] = validate_module_status(module)
+    return statuses
 
 
 def run_health_check(module: str, ctx: ExecutionContext) -> bool:

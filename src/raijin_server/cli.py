@@ -47,7 +47,7 @@ from raijin_server.modules import (
 )
 from raijin_server.utils import ExecutionContext, logger, active_log_file, available_log_files, page_text, ensure_tool
 from raijin_server.validators import validate_system_requirements, check_module_dependencies, MODULE_DEPENDENCIES
-from raijin_server.healthchecks import run_health_check
+from raijin_server.healthchecks import run_health_check, validate_module_status, get_all_module_statuses
 from raijin_server.config import ConfigManager
 from raijin_server import module_manager
 
@@ -212,7 +212,7 @@ def _run_module(ctx: typer.Context, name: str, skip_validation: bool = False) ->
 
 def _print_banner() -> None:
     console.print(Panel.fit(BANNER, style="bold blue"))
-    console.print("[bright_white]Automacao de setup e hardening para Ubuntu Server[/bright_white]\n")
+    console.print(f"[bright_white]Automacao de setup e hardening para Ubuntu Server[/bright_white]  [dim]v{__version__}[/dim]\n")
 
 
 def _select_state_dir() -> Path:
@@ -337,7 +337,7 @@ def _rollback_module(
     typer.secho(f"Rollback finalizado (best-effort) para {name}\n", fg=typer.colors.GREEN)
 
 
-def _render_menu(dry_run: bool) -> int:
+def _render_menu(dry_run: bool, live_status: bool = True) -> int:
     table = Table(
         title="Selecione um modulo para executar",
         header_style="bold white",
@@ -348,9 +348,29 @@ def _render_menu(dry_run: bool) -> int:
     table.add_column("Status", style="green", no_wrap=True)
     table.add_column("Modulo", style="bold green")
     table.add_column("Descricao", style="white")
+    
+    # Obtém status em tempo real se solicitado
+    if live_status:
+        console.print("[dim]Validando status dos módulos...[/dim]")
+        statuses = get_all_module_statuses()
+    else:
+        statuses = {}
+    
     for idx, name in enumerate(MODULES.keys(), start=1):
         desc = MODULE_DESCRIPTIONS.get(name, "")
-        status = "[green]✔[/green]" if _is_completed(name) else "[dim]-[/dim]"
+        
+        if live_status:
+            status_val = statuses.get(name, "not_installed")
+            if status_val == "ok":
+                status = "[green]✔[/green]"
+            elif status_val == "error":
+                status = "[red]✗[/red]"
+            else:
+                status = "[dim]-[/dim]"
+        else:
+            # Fallback para arquivo .done
+            status = "[green]✔[/green]" if _is_completed(name) else "[dim]-[/dim]"
+        
         table.add_row(f"{idx}", status, name, desc)
 
     exit_idx = len(MODULES) + 1
