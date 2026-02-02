@@ -713,13 +713,20 @@ def _validate_harness() -> ModuleStatus:
 
 
 def _validate_velero() -> ModuleStatus:
+    # Velero pode ser instalado via Helm ou via CLI (velero install)
     exists, deployed = _check_helm_deployed("velero", "velero")
-    if not exists:
-        return "not_installed"
-    _, running = _check_pods_running("velero")
-    if deployed and running:
+    ns_exists, running = _check_pods_running("velero")
+    
+    if exists and deployed and running:
         return "ok"
-    return "error"
+    # Fallback: verifica se foi instalado via CLI (deployment existe sem Helm)
+    if ns_exists and running:
+        ok, _ = _quick_cmd(["kubectl", "get", "deployment", "velero", "-n", "velero"])
+        if ok:
+            return "ok"
+    if ns_exists and not running:
+        return "error"
+    return "not_installed"
 
 
 def _validate_kafka() -> ModuleStatus:
