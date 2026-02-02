@@ -65,7 +65,7 @@ class IssuerConfig:
     """Configuração para criação de ClusterIssuer."""
     name: str
     email: str
-    staging: bool = False
+    staging: bool = False  # Produção por padrão (Let's Encrypt real)
     challenge_type: ChallengeType = ChallengeType.HTTP01
     ingress_class: str = "traefik"
     dns_provider: Optional[DNSProvider] = None

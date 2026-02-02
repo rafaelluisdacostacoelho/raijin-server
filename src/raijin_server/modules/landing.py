@@ -14,13 +14,17 @@ from pathlib import Path
 
 NAMESPACE = "landing"
 
-# HTML da landing page com animações de raios e tema futurista
+# HTML da landing page com animações de raios e tema futurista (RESPONSIVO)
 LANDING_HTML = '''<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0a0a1a">
+    <meta name="description" content="Raijin Server - Infrastructure Automation Platform">
     <title>Raijin Server</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
@@ -29,15 +33,24 @@ LANDING_HTML = '''<!DOCTYPE html>
             box-sizing: border-box;
         }
 
+        html {
+            font-size: 16px;
+            -webkit-text-size-adjust: 100%;
+        }
+
         body {
             min-height: 100vh;
+            min-height: 100dvh; /* Dynamic viewport height for mobile */
             background: linear-gradient(135deg, #0a0a1a 0%, #0d1b2a 25%, #1b263b 50%, #0d1b2a 75%, #0a0a1a 100%);
             display: flex;
             justify-content: center;
             align-items: center;
             font-family: 'Rajdhani', sans-serif;
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
             position: relative;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
         /* Grid de fundo futurista */
@@ -53,6 +66,12 @@ LANDING_HTML = '''<!DOCTYPE html>
             background-size: 50px 50px;
             animation: gridMove 20s linear infinite;
             z-index: 0;
+        }
+
+        @media (max-width: 768px) {
+            .grid-bg {
+                background-size: 30px 30px;
+            }
         }
 
         @keyframes gridMove {
@@ -86,6 +105,12 @@ LANDING_HTML = '''<!DOCTYPE html>
             stroke-linejoin: round;
         }
 
+        @media (max-width: 768px) {
+            .lightning path {
+                stroke-width: 2;
+            }
+        }
+
         .lightning.flash {
             animation: lightningFlash 0.3s ease-out forwards;
         }
@@ -111,6 +136,13 @@ LANDING_HTML = '''<!DOCTYPE html>
             animation: particleFloat 3s ease-in-out infinite;
         }
 
+        @media (max-width: 768px) {
+            .particle {
+                width: 3px;
+                height: 3px;
+            }
+        }
+
         @keyframes particleFloat {
             0%, 100% { transform: translateY(0) scale(1); opacity: 0.3; }
             50% { transform: translateY(-20px) scale(1.5); opacity: 1; }
@@ -133,19 +165,34 @@ LANDING_HTML = '''<!DOCTYPE html>
         .container {
             text-align: center;
             z-index: 10;
-            padding: 2rem;
+            padding: 1.5rem;
             position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        @media (min-width: 769px) {
+            .container {
+                padding: 2rem;
+            }
         }
 
         /* Logo/Símbolo */
         .logo-container {
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
             position: relative;
         }
 
+        @media (min-width: 769px) {
+            .logo-container {
+                margin-bottom: 2rem;
+            }
+        }
+
         .logo {
-            width: 150px;
-            height: 150px;
+            width: clamp(100px, 25vw, 150px);
+            height: clamp(100px, 25vw, 150px);
             position: relative;
             margin: 0 auto;
         }
@@ -158,6 +205,12 @@ LANDING_HTML = '''<!DOCTYPE html>
             border-top-color: #00d4ff;
             border-radius: 50%;
             animation: spin 3s linear infinite;
+        }
+
+        @media (max-width: 480px) {
+            .logo-circle {
+                border-width: 2px;
+            }
         }
 
         .logo-circle:nth-child(2) {
@@ -188,7 +241,7 @@ LANDING_HTML = '''<!DOCTYPE html>
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 3rem;
+            font-size: clamp(2rem, 6vw, 3rem);
             color: #00d4ff;
             text-shadow: 0 0 20px #00d4ff, 0 0 40px #0096ff;
         }
@@ -196,7 +249,7 @@ LANDING_HTML = '''<!DOCTYPE html>
         /* Título */
         h1 {
             font-family: 'Orbitron', sans-serif;
-            font-size: clamp(2.5rem, 8vw, 5rem);
+            font-size: clamp(2rem, 10vw, 5rem);
             font-weight: 900;
             background: linear-gradient(135deg, #00d4ff 0%, #0096ff 50%, #0066ff 100%);
             -webkit-background-clip: text;
@@ -216,18 +269,25 @@ LANDING_HTML = '''<!DOCTYPE html>
 
         /* Subtítulo */
         .subtitle {
-            font-size: clamp(1rem, 3vw, 1.5rem);
+            font-size: clamp(0.8rem, 3vw, 1.5rem);
             color: rgba(255, 255, 255, 0.7);
             text-transform: uppercase;
-            letter-spacing: 0.5em;
-            margin-bottom: 3rem;
+            letter-spacing: clamp(0.2em, 2vw, 0.5em);
+            margin-bottom: 2rem;
             font-weight: 300;
+            padding: 0 1rem;
+        }
+
+        @media (min-width: 769px) {
+            .subtitle {
+                margin-bottom: 3rem;
+            }
         }
 
         /* Mensagem de boas-vindas */
         .welcome {
             font-family: 'Orbitron', sans-serif;
-            font-size: clamp(1.5rem, 4vw, 2.5rem);
+            font-size: clamp(1.2rem, 5vw, 2.5rem);
             color: #fff;
             margin-bottom: 1rem;
             opacity: 0;
@@ -241,11 +301,17 @@ LANDING_HTML = '''<!DOCTYPE html>
 
         /* Linha decorativa */
         .divider {
-            width: 200px;
+            width: clamp(100px, 40vw, 200px);
             height: 2px;
             background: linear-gradient(90deg, transparent, #00d4ff, transparent);
-            margin: 2rem auto;
+            margin: 1.5rem auto;
             position: relative;
+        }
+
+        @media (min-width: 769px) {
+            .divider {
+                margin: 2rem auto;
+            }
         }
 
         .divider::before {
@@ -272,16 +338,23 @@ LANDING_HTML = '''<!DOCTYPE html>
             display: inline-flex;
             align-items: center;
             gap: 0.5rem;
-            padding: 0.75rem 2rem;
+            padding: 0.6rem 1.5rem;
             background: rgba(0, 212, 255, 0.1);
             border: 1px solid rgba(0, 212, 255, 0.3);
             border-radius: 50px;
             color: #00d4ff;
-            font-size: 0.9rem;
+            font-size: clamp(0.7rem, 2.5vw, 0.9rem);
             text-transform: uppercase;
-            letter-spacing: 0.2em;
+            letter-spacing: 0.15em;
             opacity: 0;
             animation: fadeInUp 1s ease-out 1s forwards;
+        }
+
+        @media (min-width: 769px) {
+            .status {
+                padding: 0.75rem 2rem;
+                letter-spacing: 0.2em;
+            }
         }
 
         .status-dot {
@@ -291,6 +364,7 @@ LANDING_HTML = '''<!DOCTYPE html>
             border-radius: 50%;
             box-shadow: 0 0 10px #00ff88;
             animation: statusPulse 1.5s ease-in-out infinite;
+            flex-shrink: 0;
         }
 
         @keyframes statusPulse {
@@ -300,23 +374,53 @@ LANDING_HTML = '''<!DOCTYPE html>
 
         /* Info do servidor */
         .server-info {
-            margin-top: 3rem;
+            margin-top: 2rem;
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 1.5rem;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem;
+            max-width: 100%;
+            padding: 0 0.5rem;
             opacity: 0;
             animation: fadeInUp 1s ease-out 1.5s forwards;
+        }
+
+        @media (min-width: 481px) {
+            .server-info {
+                gap: 1rem;
+                padding: 0;
+                max-width: 500px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+        }
+
+        @media (min-width: 769px) {
+            .server-info {
+                margin-top: 3rem;
+                gap: 1.5rem;
+                max-width: 600px;
+            }
         }
 
         .info-card {
             background: rgba(0, 20, 40, 0.6);
             border: 1px solid rgba(0, 212, 255, 0.2);
-            border-radius: 10px;
-            padding: 1.5rem;
+            border-radius: 8px;
+            padding: 1rem 0.5rem;
             transition: all 0.3s ease;
+        }
+
+        @media (min-width: 481px) {
+            .info-card {
+                border-radius: 10px;
+                padding: 1.25rem 1rem;
+            }
+        }
+
+        @media (min-width: 769px) {
+            .info-card {
+                padding: 1.5rem;
+            }
         }
 
         .info-card:hover {
@@ -325,30 +429,51 @@ LANDING_HTML = '''<!DOCTYPE html>
             box-shadow: 0 10px 30px rgba(0, 212, 255, 0.2);
         }
 
+        @media (max-width: 480px) {
+            .info-card:hover {
+                transform: translateY(-2px);
+            }
+        }
+
         .info-label {
-            font-size: 0.7rem;
+            font-size: clamp(0.55rem, 2vw, 0.7rem);
             color: rgba(255, 255, 255, 0.5);
             text-transform: uppercase;
-            letter-spacing: 0.2em;
-            margin-bottom: 0.5rem;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.3rem;
+        }
+
+        @media (min-width: 481px) {
+            .info-label {
+                letter-spacing: 0.2em;
+                margin-bottom: 0.5rem;
+            }
         }
 
         .info-value {
             font-family: 'Orbitron', sans-serif;
-            font-size: 1.2rem;
+            font-size: clamp(0.8rem, 3vw, 1.2rem);
             color: #00d4ff;
         }
 
         /* Footer */
         .footer {
             position: fixed;
-            bottom: 2rem;
+            bottom: 1rem;
             left: 50%;
             transform: translateX(-50%);
             color: rgba(255, 255, 255, 0.3);
-            font-size: 0.8rem;
+            font-size: clamp(0.6rem, 2vw, 0.8rem);
             text-transform: uppercase;
-            letter-spacing: 0.3em;
+            letter-spacing: 0.2em;
+            white-space: nowrap;
+        }
+
+        @media (min-width: 769px) {
+            .footer {
+                bottom: 2rem;
+                letter-spacing: 0.3em;
+            }
         }
 
         /* Scanline effect */
@@ -367,19 +492,49 @@ LANDING_HTML = '''<!DOCTYPE html>
             z-index: 100;
         }
 
-        /* Corner decorations */
+        /* Corner decorations - hidden on very small screens */
         .corner {
             position: fixed;
-            width: 100px;
-            height: 100px;
+            width: 60px;
+            height: 60px;
             border: 2px solid rgba(0, 212, 255, 0.3);
             pointer-events: none;
+            display: none;
         }
 
-        .corner-tl { top: 20px; left: 20px; border-right: none; border-bottom: none; }
-        .corner-tr { top: 20px; right: 20px; border-left: none; border-bottom: none; }
-        .corner-bl { bottom: 20px; left: 20px; border-right: none; border-top: none; }
-        .corner-br { bottom: 20px; right: 20px; border-left: none; border-top: none; }
+        @media (min-width: 481px) {
+            .corner {
+                display: block;
+            }
+        }
+
+        @media (min-width: 769px) {
+            .corner {
+                width: 100px;
+                height: 100px;
+            }
+        }
+
+        .corner-tl { top: 10px; left: 10px; border-right: none; border-bottom: none; }
+        .corner-tr { top: 10px; right: 10px; border-left: none; border-bottom: none; }
+        .corner-bl { bottom: 10px; left: 10px; border-right: none; border-top: none; }
+        .corner-br { bottom: 10px; right: 10px; border-left: none; border-top: none; }
+
+        @media (min-width: 769px) {
+            .corner-tl { top: 20px; left: 20px; }
+            .corner-tr { top: 20px; right: 20px; }
+            .corner-bl { bottom: 20px; left: 20px; }
+            .corner-br { bottom: 20px; right: 20px; }
+        }
+
+        /* Reduce motion for accessibility */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -626,17 +781,20 @@ spec:
     targetPort: 80
     nodePort: 30000
 ---
+# IngressRoute para acesso interno via DNS .internal
+# NÃO usar PathPrefix(`/`) pois captura TODO o tráfego e impede
+# outros serviços como cert-manager ACME challenges de funcionar
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: landing
+  name: landing-internal
   namespace: {NAMESPACE}
 spec:
   entryPoints:
     - web
     - websecure
   routes:
-  - match: Host(`raijin.asgard.internal`) || Host(`www.asgard.internal`) || PathPrefix(`/`)
+  - match: Host(`raijin.asgard.internal`) || Host(`www.asgard.internal`)
     kind: Rule
     services:
     - name: landing

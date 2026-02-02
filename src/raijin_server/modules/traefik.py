@@ -74,8 +74,6 @@ def run(ctx: ExecutionContext) -> None:
         if cleanup:
             _uninstall_traefik(ctx)
 
-    acme_email = typer.prompt("Email para ACME/Let's Encrypt", default="admin@example.com")
-    
     # Dashboard do Traefik deve ser acessado via VPN, não publicamente
     enable_dashboard = typer.confirm(
         "Habilitar dashboard público? (NÃO recomendado - use VPN + port-forward)",
@@ -101,9 +99,8 @@ def run(ctx: ExecutionContext) -> None:
         "ingressClass.enabled=true",
         "ingressClass.isDefaultClass=true",
         "service.type=LoadBalancer",
-        f"certificatesResolvers.letsencrypt.acme.email={acme_email}",
-        "certificatesResolvers.letsencrypt.acme.storage=/data/acme.json",
-        "certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=web",
+        # NÃO configurar ACME no Traefik - usamos cert-manager para gerenciar certificados
+        # Isso evita conflitos entre Traefik e cert-manager pelos challenges HTTP-01
         "logs.general.level=INFO",
         "providers.kubernetesIngress.ingressClass=traefik",
         # Permite agendar em control-plane de cluster single-node
