@@ -4,6 +4,31 @@
 
 O Raijin Server provisiona uma infraestrutura Kubernetes completa e prodution-ready em Ubuntu Server, incluindo:
 
+## Sumário rápido
+
+- O que instalamos e como encaixa: ingress, cluster, observabilidade, segurança.
+- Pré-requisitos e fluxo de deploy (mantidos abaixo).
+- Guias detalhados por componente na tabela "Guias por componente".
+
+## Escopo
+
+Este guia descreve o fluxo padrão (V1) em hosts Ubuntu 20.04+ (bare metal ou VM) com foco em single cluster Kubernetes usando Traefik, Cert-Manager, Calico e stack de observabilidade. Casos avançados (multi-uplink, PowerEdge, NAS dedicado, IaC) serão tratados no V2.
+
+## Guias por componente
+
+| Componente | Guia |
+|------------|------|
+| Traefik (Ingress) | [docs/tools/traefik.md](docs/tools/traefik.md) |
+| Cert-Manager (TLS) | [docs/tools/cert-manager.md](docs/tools/cert-manager.md) |
+| Calico (CNI/NP) | [docs/tools/calico.md](docs/tools/calico.md) |
+| Observabilidade (Prometheus, Grafana, Loki, Alertmanager) | [docs/tools/observability.md](docs/tools/observability.md) |
+| Segredos (Sealed-Secrets, External-Secrets) | [docs/tools/secrets.md](docs/tools/secrets.md) |
+| Registro de imagens | [docs/HARBOR.md](docs/HARBOR.md) |
+| Armazenamento de objetos | [docs/MINIO_OPERATIONS.md](docs/MINIO_OPERATIONS.md) |
+| Backup/restore | [docs/VELERO.md](docs/VELERO.md) |
+| DNS interno | [docs/INTERNAL_DNS.md](docs/INTERNAL_DNS.md) |
+| VPN e acesso remoto | [docs/VPN_REMOTE_ACCESS.md](docs/VPN_REMOTE_ACCESS.md) |
+
 ## Pré-requisitos (host Ubuntu)
 
 - Ubuntu Server 20.04+ com Python 3 instalado. Se precisar instalar/atualizar:
@@ -14,46 +39,100 @@ sudo apt install -y python3 python3-venv python3-pip
 ```
 
 ```
+                                │
+                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         INTERNET                                    │
+│                         DNS EXTERNO (A/CNAME)                       │
 └─────────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      INGRESS LAYER                                  │
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────────┐    │
-│  │   Traefik   │    │ Cert-Manager │    │    Let's Encrypt    │    │
-│  │  (Ingress)  │◄───│  (TLS Auto)  │◄───│   (Certificados)    │    │
-│  └─────────────┘    └──────────────┘    └─────────────────────┘    │
+│                 INGRESS + TLS  (Traefik + Cert-Manager)             │
+│                    Let's Encrypt (HTTP-01)                          │
 └─────────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     KUBERNETES CLUSTER                              │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    SUAS APLICAÇÕES                           │   │
-│  │   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐        │   │
-│  │   │  App 1  │  │  App 2  │  │  App 3  │  │  App N  │        │   │
-│  │   └─────────┘  └─────────┘  └─────────┘  └─────────┘        │   │
-│  └─────────────────────────────────────────────────────────────┘   │
+│                 REGISTRY / ARTEFATOS (Harbor)                       │
+│           Imagens de app e, opcionalmente, charts Helm              │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                         KUBERNETES CLUSTER                          │
+│ ┌─────────────────────────────────────────────────────────────────┐ │
+│ │                        SUAS APLICAÇÕES                          │ │
+│ └─────────────────────────────────────────────────────────────────┘ │
 │                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    OBSERVABILIDADE                           │   │
-│  │   ┌───────────┐  ┌─────────┐  ┌──────┐  ┌──────────────┐    │   │
-│  │   │Prometheus │  │ Grafana │  │ Loki │  │ Alertmanager │    │   │
-│  │   │ (Métricas)│  │(Dashb.) │  │(Logs)│  │  (Alertas)   │    │   │
-│  │   └───────────┘  └─────────┘  └──────┘  └──────────────┘    │   │
-│  └─────────────────────────────────────────────────────────────┘   │
+│ ┌─────────────────────────────┐  ┌──────────────────────────────┐  │
+│ │ Observabilidade             │  │ Rede e Segurança             │  │
+│ │ Prometheus / Grafana        │  │ Calico + NetworkPolicy       │  │
+│ │ Loki / Alertmanager         │  │ Sealed-Secrets                │  │
+│ │                             │  │ External-Secrets -> Vault/AWS │  │
+│ └─────────────────────────────┘  └──────────────────────────────┘  │
 │                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                      SEGURANÇA                               │   │
-│  │   ┌────────┐  ┌────────────────┐  ┌───────────────────┐     │   │
-│  │   │ Calico │  │ Sealed-Secrets │  │ External-Secrets  │     │   │
-│  │   │ (CNI)  │  │  (Criptografia)│  │ (Vault/AWS/GCP)   │     │   │
-│  │   └────────┘  └────────────────┘  └───────────────────┘     │   │
-│  └─────────────────────────────────────────────────────────────┘   │
+│ ┌─────────────────────────────┐  ┌──────────────────────────────┐  │
+│ │ Armazenamento de Objetos    │  │ Backup / Restore             │  │
+│ │ MinIO (S3 compatível)       │  │ Velero + bucket S3/MinIO     │  │
+│ │ PVs para aplicações         │  │                              │  │
+│ └─────────────────────────────┘  └──────────────────────────────┘  │
+│                                                                     │
+│ ┌─────────────────────────────┐  ┌──────────────────────────────┐  │
+│ │ DNS Interno                 │  │ VPN / Acesso Remoto (WG)     │  │
+│ │ CoreDNS + zonas internas    │  │ Acesso operacional seguro    │  │
+│ └─────────────────────────────┘  └──────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+## Arquitetura detalhada (camadas e fluxos)
+
+- Entrada e identidade: DNS público (A/CNAME) aponta para o endpoint publicado pelo Traefik; TLS automatizado via Cert-Manager + Let's Encrypt (HTTP-01).
+- Entrega de artefatos: Harbor armazena imagens (e opcionalmente charts). Pipelines publicam aqui antes do deploy.
+- Cluster Kubernetes: control plane e workers em Ubuntu 20.04+ (bare metal ou VM). Rede pod/pod e pod/service fornecida pelo Calico (BGP desabilitado por padrão).
+- Segurança e segredos: Sealed-Secrets para GitOps seguro; External-Secrets para consumir segredos de Vault/AWS/GCP; NetworkPolicies default-deny nos namespaces de apps.
+- Observabilidade: kube-prometheus-stack (Prometheus, Grafana, Alertmanager) + Loki para logs. Dashboards e alertas prontos para componentes core.
+- Armazenamento e dados: MinIO (S3) para objetos; PVs para workloads com storage class conforme ambiente. Velero usa bucket S3/MinIO para backups de objetos Kubernetes e, se habilitado, volumes.
+- Serviços de suporte: CoreDNS para zonas internas; VPN WireGuard para acesso operacional seguro (kubectl, dashboards, SSH nos nodes).
+
+## Fluxo resumido de provisionamento (V1)
+
+1) Hosts Ubuntu prontos (SSH, rede, storage local/NAS conforme ambiente).
+2) Instalação do CLI (Python, Helm, kubectl) e bootstrap do cluster (kubeadm padrão do projeto) com Calico.
+3) Instalação de ingress (Traefik) e Cert-Manager com issuers `letsencrypt-staging` e `letsencrypt-prod`.
+4) Instalação de observabilidade (kube-prometheus-stack) e Loki.
+5) Instalação de Harbor (registry) e, se necessário, MinIO para storage de objetos.
+6) Instalação de Velero apontando para bucket S3/MinIO.
+7) Instalação de Sealed-Secrets e External-Secrets + configuração de backend (Vault/AWS/GCP).
+8) Configuração de CoreDNS para zonas internas e WireGuard para acesso remoto.
+
+## Topologia de rede e nós (referência)
+
+- Control plane: 1–3 nós com etcd embutido; IPs estáticos; porta 6443 acessível aos workers.
+- Workers: IPs estáticos ou DHCP reservado; respeitam o pod CIDR do Calico e o service CIDR do cluster.
+- Ingress: Service LoadBalancer ou NodePort + IP externo/keepalived/MetalLB conforme ambiente para tráfego 80/443.
+- DNS interno: CoreDNS resolve serviços internos; zonas privadas adicionais são definidas conforme [docs/INTERNAL_DNS.md](docs/INTERNAL_DNS.md).
+- VPN: WireGuard fornece rota para API server e serviços internos; use kubeconfig via VPN para evitar exposição pública.
+
+## Armazenamento e backup
+
+- Objetos: MinIO exposto via Service interno; credenciais gerenciadas via Sealed-Secrets/External-Secrets.
+- Volumes persistentes: escolha da storage class por ambiente (local-path, NFS provisioner ou CSI de nuvem/bare metal); sempre defina `resources.requests.storage` em PVCs.
+- Backups: Velero apontado para bucket S3/MinIO; captura objetos Kubernetes e (opcional) volumes via plugins. Agende backups regulares e teste restores em namespace isolado.
+
+## Segurança e acesso
+
+- TLS: Cert-Manager emite/renova automaticamente; adicionar `cert-manager.io/cluster-issuer` no Ingress.
+- Rede: NetworkPolicies default-deny em namespaces de apps; liberar apenas origens necessárias (Traefik para serviços expostos, monitoramento para `/metrics`).
+- Segredos: preferir External-Secrets para segredos dinâmicos (Vault/AWS/GCP); Sealed-Secrets para GitOps de segredos estáticos.
+- Acesso humano: VPN WireGuard + kubeconfig controlado; evitar expor API server na internet sem restrições.
+- Registro: Harbor com autenticação; use tokens/robots para CI/CD.
+
+## Observabilidade e operação
+
+- Dashboards: Grafana (kube-prometheus) com painéis de nodes, pods e control plane; acesso via port-forward ou VPN.
+- Alertas: Alertmanager configurado; definir rotas (e-mail/webhook/chat) conforme operação.
+- Logs: Loki consumido pelo Grafana; padronizar labels `namespace` e `app` nos deployments.
+- Saúde rápida: `kubectl get nodes`, `kubectl get pods -A`, `kubectl top nodes/pods` (metrics-server incluso na stack).
 
 ---
 
