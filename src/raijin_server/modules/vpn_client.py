@@ -634,7 +634,7 @@ def verify_config(ctx: ExecutionContext) -> None:
     typer.secho("CHECKLIST PARA CLIENTES:", fg=typer.colors.CYAN, bold=True)
     typer.echo("="*60)
     typer.echo("1. [Peer].PublicKey deve ser a chave pública do SERVIDOR (acima)")
-    typer.echo("2. [Peer].Endpoint deve ser IP_PÚBLICO:PORTA (ex: 177.128.86.89:51820)")
+    typer.echo("2. [Peer].Endpoint deve ser IP_PÚBLICO:PORTA (ex: 203.0.113.50:51820)")
     typer.echo("3. [Interface].PrivateKey deve ser a chave privada do CLIENTE (não do servidor!)")
     typer.echo("4. [Interface].Address deve ser único para cada cliente (ex: 10.8.0.2/32)")
     typer.echo("")

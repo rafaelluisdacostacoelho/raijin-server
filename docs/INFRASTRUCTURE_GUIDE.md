@@ -1,33 +1,57 @@
 # 🚀 Guia Completo da Infraestrutura Raijin Server
 
+> **Documentação detalhada**: [📚 Guia de Ferramentas](tools/README.md) | **Arquitetura**: [ARCHITECTURE.md](../ARCHITECTURE.md)
+
+---
+
 ## Visão Geral
 
-O Raijin Server provisiona uma infraestrutura Kubernetes completa e prodution-ready em Ubuntu Server, incluindo:
+O Raijin Server provisiona uma infraestrutura Kubernetes completa e production-ready em Ubuntu Server, incluindo:
 
 ## Sumário rápido
 
 - O que instalamos e como encaixa: ingress, cluster, observabilidade, segurança.
 - Pré-requisitos e fluxo de deploy (mantidos abaixo).
-- Guias detalhados por componente na tabela "Guias por componente".
+- **[📚 Guias detalhados por componente](tools/README.md)** - Documentação técnica completa.
 
 ## Escopo
 
 Este guia descreve o fluxo padrão (V1) em hosts Ubuntu 20.04+ (bare metal ou VM) com foco em single cluster Kubernetes usando Traefik, Cert-Manager, Calico e stack de observabilidade. Casos avançados (multi-uplink, PowerEdge, NAS dedicado, IaC) serão tratados no V2.
 
-## Guias por componente
+## 📚 Guias por componente
 
-| Componente | Guia |
-|------------|------|
-| Traefik (Ingress) | [docs/tools/traefik.md](docs/tools/traefik.md) |
-| Cert-Manager (TLS) | [docs/tools/cert-manager.md](docs/tools/cert-manager.md) |
-| Calico (CNI/NP) | [docs/tools/calico.md](docs/tools/calico.md) |
-| Observabilidade (Prometheus, Grafana, Loki, Alertmanager) | [docs/tools/observability.md](docs/tools/observability.md) |
-| Segredos (Sealed-Secrets, External-Secrets) | [docs/tools/secrets.md](docs/tools/secrets.md) |
-| Registro de imagens | [docs/HARBOR.md](docs/HARBOR.md) |
-| Armazenamento de objetos | [docs/MINIO_OPERATIONS.md](docs/MINIO_OPERATIONS.md) |
-| Backup/restore | [docs/VELERO.md](docs/VELERO.md) |
-| DNS interno | [docs/INTERNAL_DNS.md](docs/INTERNAL_DNS.md) |
-| VPN e acesso remoto | [docs/VPN_REMOTE_ACCESS.md](docs/VPN_REMOTE_ACCESS.md) |
+> **Documentação completa**: Acesse [tools/README.md](tools/README.md) para documentação técnica detalhada com glossários, exemplos práticos e troubleshooting avançado.
+
+### Rede e Conectividade
+| Componente | Descrição | Guia Detalhado |
+|------------|-----------|----------------|
+| Traefik | Ingress Controller L7 (HTTP/HTTPS) | [📖 traefik.md](tools/traefik.md) |
+| Cert-Manager | TLS automático (Let's Encrypt) | [📖 cert-manager.md](tools/cert-manager.md) |
+| Calico | CNI + NetworkPolicies | [📖 calico.md](tools/calico.md) |
+
+### Segurança e Secrets
+| Componente | Descrição | Guia Detalhado |
+|------------|-----------|----------------|
+| Vault | HashiCorp Vault + ESO | [📖 vault.md](tools/vault.md) |
+| Sealed-Secrets | GitOps seguro para secrets | [📖 secrets.md](tools/secrets.md) |
+
+### Armazenamento e Backup
+| Componente | Descrição | Guia Detalhado |
+|------------|-----------|----------------|
+| MinIO | S3-compatible object storage | [📖 minio.md](tools/minio.md) |
+| Harbor | Container Registry + Trivy | [📖 harbor.md](tools/harbor.md) |
+| Velero | Backup e restore de cluster | [📖 velero.md](tools/velero.md) |
+
+### Observabilidade
+| Componente | Descrição | Guia Detalhado |
+|------------|-----------|----------------|
+| Observability Stack | Prometheus + Grafana + Loki | [📖 observability.md](tools/observability.md) |
+
+### Outros Componentes
+| Componente | Descrição | Guia |
+|------------|-----------|------|
+| DNS interno | CoreDNS customizado | [INTERNAL_DNS.md](INTERNAL_DNS.md) |
+| VPN | WireGuard remote access | [VPN_REMOTE_ACCESS.md](VPN_REMOTE_ACCESS.md) |
 
 ## Pré-requisitos (host Ubuntu)
 
@@ -64,23 +88,23 @@ sudo apt install -y python3 python3-venv python3-pip
 │ │                        SUAS APLICAÇÕES                          │ │
 │ └─────────────────────────────────────────────────────────────────┘ │
 │                                                                     │
-│ ┌─────────────────────────────┐  ┌──────────────────────────────┐  │
-│ │ Observabilidade             │  │ Rede e Segurança             │  │
-│ │ Prometheus / Grafana        │  │ Calico + NetworkPolicy       │  │
+│ ┌─────────────────────────────┐  ┌───────────────────────────────┐  │
+│ │ Observabilidade             │  │ Rede e Segurança              │  │
+│ │ Prometheus / Grafana        │  │ Calico + NetworkPolicy        │  │
 │ │ Loki / Alertmanager         │  │ Sealed-Secrets                │  │
 │ │                             │  │ External-Secrets -> Vault/AWS │  │
-│ └─────────────────────────────┘  └──────────────────────────────┘  │
+│ └─────────────────────────────┘  └───────────────────────────────┘  │
 │                                                                     │
-│ ┌─────────────────────────────┐  ┌──────────────────────────────┐  │
-│ │ Armazenamento de Objetos    │  │ Backup / Restore             │  │
-│ │ MinIO (S3 compatível)       │  │ Velero + bucket S3/MinIO     │  │
-│ │ PVs para aplicações         │  │                              │  │
-│ └─────────────────────────────┘  └──────────────────────────────┘  │
+│ ┌─────────────────────────────┐  ┌───────────────────────────────┐  │
+│ │ Armazenamento de Objetos    │  │ Backup / Restore              │  │
+│ │ MinIO (S3 compatível)       │  │ Velero + bucket S3/MinIO      │  │
+│ │ PVs para aplicações         │  │                               │  │
+│ └─────────────────────────────┘  └───────────────────────────────┘  │
 │                                                                     │
-│ ┌─────────────────────────────┐  ┌──────────────────────────────┐  │
-│ │ DNS Interno                 │  │ VPN / Acesso Remoto (WG)     │  │
-│ │ CoreDNS + zonas internas    │  │ Acesso operacional seguro    │  │
-│ └─────────────────────────────┘  └──────────────────────────────┘  │
+│ ┌─────────────────────────────┐  ┌───────────────────────────────┐  │
+│ │ DNS Interno                 │  │ VPN / Acesso Remoto (WG)      │  │
+│ │ CoreDNS + zonas internas    │  │ Acesso operacional seguro     │  │
+│ └─────────────────────────────┘  └───────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 

@@ -10,7 +10,7 @@ on:
   workflow_dispatch:  # Allow manual trigger
 
 env:
-  HARBOR_REGISTRY: 192.168.1.81:30880
+  HARBOR_REGISTRY: 192.168.1.100:30880
   HARBOR_PROJECT: prd
   IMAGE_NAME: myapp
   K8S_NAMESPACE: prd
@@ -281,7 +281,7 @@ jobs:
           
           # Check Grafana dashboards (optional)
           # curl -H "Authorization: Bearer ${{ secrets.GRAFANA_API_KEY }}" \
-          #   "http://192.168.1.81:30300/api/dashboards/uid/myapp"
+          #   "http://192.168.1.100:30300/api/dashboards/uid/myapp"
 
   notify:
     name: Notify

@@ -36,14 +36,17 @@ from raijin_server.modules import (
     metallb,
     minio,
     network,
+    network_config,
     prometheus,
     secrets,
     sanitize,
     ssh_hardening,
+    ssh_manager,
     traefik,
     velero,
     vpn,
     vpn_client,
+    vpn_manager,
 )
 from raijin_server.utils import ExecutionContext, logger, active_log_file, available_log_files, page_text, ensure_tool
 from raijin_server.validators import validate_system_requirements, check_module_dependencies, MODULE_DEPENDENCIES
@@ -671,6 +674,137 @@ def cert_list_issuers(ctx: typer.Context) -> None:
         )
     except Exception:
         pass
+
+
+# ============================================================================
+# Subcomandos VPN Control - Pausar/Retomar VPN
+# ============================================================================
+vpn_ctl_app = typer.Typer(help="Gerenciamento de VPN WireGuard (pausar/retomar)")
+app.add_typer(vpn_ctl_app, name="vpn-control")
+
+
+@vpn_ctl_app.command(name="status")
+def vpn_ctl_status(ctx: typer.Context) -> None:
+    """Mostra status atual da VPN WireGuard."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    vpn_manager.status(exec_ctx)
+
+
+@vpn_ctl_app.command(name="pause")
+def vpn_ctl_pause(ctx: typer.Context) -> None:
+    """Pausa VPN - fecha porta e desativa interface para reduzir superfície de ataque."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    vpn_manager.pause(exec_ctx)
+
+
+@vpn_ctl_app.command(name="resume")
+def vpn_ctl_resume(ctx: typer.Context) -> None:
+    """Retoma VPN - abre porta e ativa interface."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    vpn_manager.resume(exec_ctx)
+
+
+@vpn_ctl_app.command(name="schedule")
+def vpn_ctl_schedule(
+    ctx: typer.Context,
+    enable: bool = typer.Option(True, "--enable/--disable", help="Habilitar ou desabilitar agendamento"),
+    start_hour: int = typer.Option(8, "--start", help="Hora de início (VPN ativa)"),
+    end_hour: int = typer.Option(22, "--end", help="Hora de fim (VPN pausa)"),
+) -> None:
+    """Configura horário automático para VPN (ativa das 8h às 22h por padrão)."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    vpn_manager.schedule(exec_ctx, enable=enable, start_hour=start_hour, end_hour=end_hour)
+
+
+# ============================================================================
+# Subcomandos SSH Control - Habilitar/Desabilitar SSH
+# ============================================================================
+ssh_ctl_app = typer.Typer(help="Gerenciamento de SSH (habilitar/desabilitar)")
+app.add_typer(ssh_ctl_app, name="ssh-control")
+
+
+@ssh_ctl_app.command(name="status")
+def ssh_ctl_status(ctx: typer.Context) -> None:
+    """Mostra status atual do SSH."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    ssh_manager.status(exec_ctx)
+
+
+@ssh_ctl_app.command(name="enable")
+def ssh_ctl_enable(ctx: typer.Context) -> None:
+    """Habilita SSH - inicia serviço e abre porta no firewall."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    ssh_manager.enable(exec_ctx)
+
+
+@ssh_ctl_app.command(name="disable")
+def ssh_ctl_disable(
+    ctx: typer.Context,
+    force: bool = typer.Option(False, "--force", "-f", help="Não pede confirmação"),
+) -> None:
+    """Desabilita SSH - para serviço e fecha porta para reduzir superfície de ataque.
+    
+    ⚠️  ATENÇÃO: Certifique-se de ter outra forma de acesso (console, VPN).
+    """
+    exec_ctx = ctx.obj or ExecutionContext()
+    ssh_manager.disable(exec_ctx, force=force)
+
+
+@ssh_ctl_app.command(name="port")
+def ssh_ctl_port(
+    ctx: typer.Context,
+    port: int = typer.Argument(..., help="Nova porta SSH (recomendado: > 1024)"),
+) -> None:
+    """Muda a porta do SSH para dificultar escaneamento."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    ssh_manager.change_port(exec_ctx, port)
+
+
+@ssh_ctl_app.command(name="schedule")
+def ssh_ctl_schedule(
+    ctx: typer.Context,
+    enable: bool = typer.Option(True, "--enable/--disable", help="Habilitar ou desabilitar agendamento"),
+    start_hour: int = typer.Option(8, "--start", help="Hora de início (SSH ativo)"),
+    end_hour: int = typer.Option(22, "--end", help="Hora de fim (SSH desabilita)"),
+) -> None:
+    """Configura horário automático para SSH.
+    
+    ⚠️  Fora do horário configurado, SSH será desabilitado automaticamente.
+    """
+    exec_ctx = ctx.obj or ExecutionContext()
+    ssh_manager.schedule(exec_ctx, enable_schedule=enable, start_hour=start_hour, end_hour=end_hour)
+
+
+# ============================================================================
+# Subcomandos Network Config - Configuração de Rede via ENV
+# ============================================================================
+net_app = typer.Typer(help="Configuração de rede via variáveis de ambiente")
+app.add_typer(net_app, name="network-config")
+
+
+@net_app.command(name="show")
+def net_show(ctx: typer.Context) -> None:
+    """Mostra configuração atual de rede e compara com variáveis de ambiente."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    network_config.show_config(exec_ctx)
+
+
+@net_app.command(name="apply")
+def net_apply(ctx: typer.Context) -> None:
+    """Aplica configuração de rede baseada nas variáveis de ambiente.
+    
+    Cria backup da configuração atual antes de aplicar.
+    Lê valores de: RAIJIN_NET_INTERFACE, RAIJIN_NET_IP, RAIJIN_NET_GATEWAY, etc.
+    """
+    exec_ctx = ctx.obj or ExecutionContext()
+    network_config.apply_config(exec_ctx)
+
+
+@net_app.command(name="restore")
+def net_restore(ctx: typer.Context) -> None:
+    """Restaura configuração de rede do backup anterior."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    network_config.restore_backup(exec_ctx)
 
 
 # ============================================================================

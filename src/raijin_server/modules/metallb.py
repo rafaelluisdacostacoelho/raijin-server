@@ -196,9 +196,11 @@ def run(ctx: ExecutionContext) -> None:
         if cleanup:
             _uninstall_metallb(ctx)
 
+    import os
+    default_pool = os.environ.get("RAIJIN_METALLB_POOL", "192.168.1.240-192.168.1.250")
     pool = typer.prompt(
         "Pool de IPs (range ou CIDR) para services LoadBalancer",
-        default="192.168.1.100-192.168.1.250",
+        default=default_pool,
     )
 
     node_name = _detect_node_name(ctx)

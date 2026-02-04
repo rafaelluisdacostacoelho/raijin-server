@@ -412,7 +412,9 @@ def run(ctx: ExecutionContext) -> None:
         ctx,
         check=False,
     )
-    node_ip = result.stdout.strip() if result.returncode == 0 else "192.168.1.81"
+    import os
+    fallback_ip = os.environ.get("RAIJIN_NET_IP", "192.168.1.100/24").split("/")[0]
+    node_ip = result.stdout.strip() if result.returncode == 0 else fallback_ip
     
     minio_host = typer.prompt("MinIO host (interno)", default="minio.minio.svc:9000")
     access_key, secret_key = _get_minio_credentials(ctx)

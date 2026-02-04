@@ -123,10 +123,11 @@ def run(ctx: ExecutionContext) -> None:
             fg=typer.colors.YELLOW,
         )
 
-    iface = typer.prompt("Interface", default="ens18")
-    address = typer.prompt("Endereco CIDR", default="192.168.1.81/24")
-    gateway = typer.prompt("Gateway", default="192.168.1.254")
-    dns = typer.prompt("DNS (separe por virgula)", default="177.128.80.44,177.128.80.45")
+    import os
+    iface = typer.prompt("Interface", default=os.environ.get("RAIJIN_NET_INTERFACE", "eth0"))
+    address = typer.prompt("Endereco CIDR", default=os.environ.get("RAIJIN_NET_IP", "192.168.1.100/24"))
+    gateway = typer.prompt("Gateway", default=os.environ.get("RAIJIN_NET_GATEWAY", "192.168.1.1"))
+    dns = typer.prompt("DNS (separe por virgula)", default=os.environ.get("RAIJIN_NET_DNS", "1.1.1.1,8.8.8.8"))
 
     dns_list = ",".join([item.strip() for item in dns.split(",") if item.strip()])
     netplan_content = f"""network:

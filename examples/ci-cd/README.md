@@ -230,7 +230,7 @@ CVE-2024-67890  # Will be fixed in next release
 ### Login
 
 ```bash
-echo $HARBOR_PASSWORD | docker login 192.168.1.81:30880 \
+echo $HARBOR_PASSWORD | docker login 192.168.1.100:30880 \
   -u $HARBOR_USERNAME --password-stdin
 ```
 
@@ -238,14 +238,14 @@ echo $HARBOR_PASSWORD | docker login 192.168.1.81:30880 \
 
 **TST**:
 ```bash
-docker tag myapp:latest 192.168.1.81:30880/tst/myapp:dev-${BUILD_ID}
-docker push 192.168.1.81:30880/tst/myapp:dev-${BUILD_ID}
+docker tag myapp:latest 192.168.1.100:30880/tst/myapp:dev-${BUILD_ID}
+docker push 192.168.1.100:30880/tst/myapp:dev-${BUILD_ID}
 ```
 
 **PRD**:
 ```bash
-docker tag myapp:latest 192.168.1.81:30880/prd/myapp:v${VERSION}
-docker push 192.168.1.81:30880/prd/myapp:v${VERSION}
+docker tag myapp:latest 192.168.1.100:30880/prd/myapp:v${VERSION}
+docker push 192.168.1.100:30880/prd/myapp:v${VERSION}
 ```
 
 ### Verificar Scan Status
@@ -253,7 +253,7 @@ docker push 192.168.1.81:30880/prd/myapp:v${VERSION}
 ```bash
 # Via API
 curl -u $HARBOR_USERNAME:$HARBOR_PASSWORD \
-  "http://192.168.1.81:30880/api/v2.0/projects/prd/repositories/myapp/artifacts/v1.0.0/additions/vulnerabilities"
+  "http://192.168.1.100:30880/api/v2.0/projects/prd/repositories/myapp/artifacts/v1.0.0/additions/vulnerabilities"
 ```
 
 ---
@@ -281,7 +281,7 @@ data:
 **TST**:
 ```bash
 kubectl set image deployment/myapp \
-  myapp=192.168.1.81:30880/tst/myapp:dev-123 \
+  myapp=192.168.1.100:30880/tst/myapp:dev-123 \
   -n tst
 
 kubectl rollout status deployment/myapp -n tst --timeout=5m
@@ -403,11 +403,11 @@ kubectl patch service myapp -n prd \
 ```bash
 # List previous tags
 curl -u $HARBOR_USERNAME:$HARBOR_PASSWORD \
-  "http://192.168.1.81:30880/api/v2.0/projects/prd/repositories/myapp/artifacts"
+  "http://192.168.1.100:30880/api/v2.0/projects/prd/repositories/myapp/artifacts"
 
 # Redeploy previous version
 kubectl set image deployment/myapp \
-  myapp=192.168.1.81:30880/prd/myapp:v1.0.0 \
+  myapp=192.168.1.100:30880/prd/myapp:v1.0.0 \
   -n prd
 ```
 
@@ -474,7 +474,7 @@ trivy image --format json myapp:latest | jq .
 ```bash
 # Ver scan results via API
 curl -u admin:Harbor12345 \
-  "http://192.168.1.81:30880/api/v2.0/projects/prd/repositories/myapp/artifacts/v1.0.0/additions/vulnerabilities"
+  "http://192.168.1.100:30880/api/v2.0/projects/prd/repositories/myapp/artifacts/v1.0.0/additions/vulnerabilities"
 
 # Temporariamente desabilitar blocking (não recomendado)
 # Harbor UI → Projects → prd → Configuration → Prevent vulnerable images: OFF

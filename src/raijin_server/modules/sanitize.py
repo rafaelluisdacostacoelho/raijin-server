@@ -9,11 +9,13 @@ import typer
 
 from raijin_server.utils import ExecutionContext, require_root, run_cmd, write_file
 
-# Defaults alinhados com configuracao de rede solicitada
-NETPLAN_IFACE = "ens18"
-NETPLAN_ADDRESS = "192.168.1.81/24"
-NETPLAN_GATEWAY = "192.168.1.254"
-NETPLAN_DNS = "177.128.80.44,177.128.80.45"
+# Defaults genéricos - configure via variáveis de ambiente ou prompts
+# Use: export RAIJIN_NET_* para customizar (ver .env.example)
+import os
+NETPLAN_IFACE = os.environ.get("RAIJIN_NET_INTERFACE", "eth0")
+NETPLAN_ADDRESS = os.environ.get("RAIJIN_NET_IP", "192.168.1.100/24")
+NETPLAN_GATEWAY = os.environ.get("RAIJIN_NET_GATEWAY", "192.168.1.1")
+NETPLAN_DNS = os.environ.get("RAIJIN_NET_DNS", "1.1.1.1,8.8.8.8")
 NETPLAN_PATH = Path("/etc/netplan/01-raijin-static.yaml")
 
 SYSTEMD_SERVICES = [

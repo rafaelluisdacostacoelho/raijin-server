@@ -55,6 +55,30 @@ def _reset_cluster(ctx: ExecutionContext) -> None:
     typer.secho("✓ Limpeza concluida.", fg=typer.colors.GREEN)
 
 
+def _detect_lan_ip() -> str:
+    """Detecta IP da LAN automaticamente."""
+    import subprocess
+    try:
+        # Usa ip route para encontrar IP da interface padrão
+        result = subprocess.run(
+            ["ip", "route", "get", "1.1.1.1"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            # Formato: "1.1.1.1 via X.X.X.X dev ethX src Y.Y.Y.Y"
+            for part in result.stdout.split():
+                if part.count(".") == 3 and not part.startswith("1.1.1"):
+                    # Retorna o IP após "src"
+                    parts = result.stdout.split()
+                    if "src" in parts:
+                        idx = parts.index("src")
+                        if idx + 1 < len(parts):
+                            return parts[idx + 1]
+    except Exception:
+        pass
+    return "192.168.1.100"  # Fallback genérico
+
+
 def _cni_present(ctx: ExecutionContext) -> bool:
     """Detecta se ja existe um CNI aplicado (qualquer DaemonSet tipico)."""
 
@@ -234,15 +258,16 @@ net.ipv6.conf.lo.disable_ipv6=1
     write_file(Path("/etc/sysctl.d/99-kubernetes.conf"), sysctl_k8s, ctx)
     run_cmd(["sysctl", "--system"], ctx, check=False)
 
-    # Prompts de configuracao
-    pod_cidr = typer.prompt("Pod CIDR", default="10.244.0.0/16")
-    service_cidr = typer.prompt("Service CIDR", default="10.96.0.0/12")
-    cluster_name = typer.prompt("Nome do cluster", default="raijin")
-    default_adv = "192.168.1.81"
+    # Prompts de configuracao (lê de ENV ou usa defaults genéricos)
+    import os
+    pod_cidr = typer.prompt("Pod CIDR", default=os.environ.get("RAIJIN_K8S_POD_CIDR", "10.244.0.0/16"))
+    service_cidr = typer.prompt("Service CIDR", default=os.environ.get("RAIJIN_K8S_SERVICE_CIDR", "10.96.0.0/12"))
+    cluster_name = typer.prompt("Nome do cluster", default=os.environ.get("RAIJIN_K8S_CLUSTER_NAME", "raijin"))
+    default_adv = os.environ.get("RAIJIN_K8S_ADVERTISE_ADDRESS", _detect_lan_ip())
     advertise_address = typer.prompt("API advertise address", default=default_adv)
     if advertise_address != default_adv:
         typer.secho(
-            f"⚠ Para ambiente atual use {default_adv} (IP LAN, evita NAT).", fg=typer.colors.YELLOW
+            f"⚠ Recomendado usar {default_adv} (IP LAN detectado, evita NAT).", fg=typer.colors.YELLOW
         )
         if not typer.confirm(f"Deseja forcar {default_adv}?", default=True):
             typer.secho(

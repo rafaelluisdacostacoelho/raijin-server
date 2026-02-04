@@ -21,7 +21,7 @@ Guia completo para publicar sites, APIs e sistemas na internet usando Traefik + 
                                   ▼
                     ┌─────────────────────────────┐
                     │       IP Público Fixo       │
-                    │        177.128.86.89        │
+                    │        203.0.113.50        │
                     │                             │
                     │      Porta 80  (HTTP)       │
                     │      Porta 443 (HTTPS)      │
@@ -31,8 +31,8 @@ Guia completo para publicar sites, APIs e sistemas na internet usando Traefik + 
                     │        ROTEADOR             │
                     │                             │
                     │   Port Forward (1x):        │
-                    │   80  → 192.168.1.81:30080  │
-                    │   443 → 192.168.1.81:30443  │
+                    │   80  → 192.168.1.100:30080  │
+                    │   443 → 192.168.1.100:30443  │
                     └─────────────┬───────────────┘
                                   │
                                   ▼
@@ -89,14 +89,14 @@ No painel admin do roteador (geralmente http://192.168.1.1):
 
 | Nome | Porta Externa | IP Interno | Porta Interna | Protocolo |
 |------|---------------|------------|---------------|-----------|
-| `HTTP` | **80** | 192.168.1.81 | **30080** | TCP |
-| `HTTPS` | **443** | 192.168.1.81 | **30443** | TCP |
+| `HTTP` | **80** | 192.168.1.100 | **30080** | TCP |
+| `HTTPS` | **443** | 192.168.1.100 | **30443** | TCP |
 
 ### Verificar se funciona
 
 ```bash
 # De fora da rede (ou use celular com 4G)
-curl -I http://177.128.86.89
+curl -I http://203.0.113.50
 
 # Deve retornar algo como:
 # HTTP/1.1 404 Not Found  (Traefik respondendo, mas sem rota configurada)
@@ -114,20 +114,20 @@ Adicione um registro A apontando para seu IP público:
 
 | Type | Name | Content | Proxy | TTL |
 |------|------|---------|-------|-----|
-| A | `@` ou `subdomain` | `177.128.86.89` | DNS only (cinza) | Auto |
+| A | `@` ou `subdomain` | `203.0.113.50` | DNS only (cinza) | Auto |
 
 **Exemplos:**
 
 ```
 # Domínio raiz
-hisentient.com         A    177.128.86.89
+hisentient.com         A    203.0.113.50
 
 # Subdomínio
-api.hisentient.com     A    177.128.86.89
-app.hisentient.com     A    177.128.86.89
+api.hisentient.com     A    203.0.113.50
+app.hisentient.com     A    203.0.113.50
 
 # Wildcard (todos os subdomínios)
-*.hisentient.com       A    177.128.86.89
+*.hisentient.com       A    203.0.113.50
 ```
 
 > ⚠️ **IMPORTANTE**: Mantenha o proxy do Cloudflare **DESLIGADO** (ícone cinza) para o certificado Let's Encrypt funcionar via HTTP-01 challenge.

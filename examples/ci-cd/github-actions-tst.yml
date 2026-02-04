@@ -10,7 +10,7 @@ on:
     branches: [develop]
 
 env:
-  HARBOR_REGISTRY: 192.168.1.81:30880
+  HARBOR_REGISTRY: 192.168.1.100:30880
   HARBOR_PROJECT: tst
   IMAGE_NAME: myapp
   K8S_NAMESPACE: tst

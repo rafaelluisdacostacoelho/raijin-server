@@ -20,77 +20,77 @@ Documentação completa da stack de infraestrutura, observabilidade, segurança 
 ### Stack Tecnológica
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                  DEVELOPER WORKSTATION                      │
-│  • Git Push (develop/main)                                  │
-│  • VPN Access (10.8.0.2)                                   │
-└────────────────────┬────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                  DEVELOPER WORKSTATION                    │
+│  • Git Push (develop/main)                                │
+│  • VPN Access (10.8.0.2)                                  │
+└────────────────────┬──────────────────────────────────────┘
                      │
                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   CI/CD (Argo CD + Argo Workflows)          │
-│  ┌────────────────────────────────────────────────────┐    │
-│  │  Argo Workflows (CI Stage)                          │    │
-│  │  1. Checkout code                                   │    │
-│  │  2. Semgrep SAST scan                              │    │
-│  │  3. Unit tests                                      │    │
-│  │  4. Docker build (Kaniko)                          │    │
-│  │  5. Trivy vulnerability scan                        │    │
-│  │  6. Push to Harbor (tst/prd)                       │    │
-│  └────────────────────────────────────────────────────┘    │
-│  ┌────────────────────────────────────────────────────┐    │
-│  │  Argo CD (GitOps CD Stage)                          │    │
-│  │  1. Sync manifests from Git                        │    │
-│  │  2. Deploy to K8s (GitOps)                         │    │
-│  │  3. Health checks                                   │    │
-│  │  4. Auto-rollback on failure                       │    │
-│  └────────────────────────────────────────────────────┘    │
-└────────────────────┬────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                   CI/CD (Argo CD + Argo Workflows)        │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  Argo Workflows (CI Stage)                          │  │
+│  │  1. Checkout code                                   │  │
+│  │  2. Semgrep SAST scan                               │  │
+│  │  3. Unit tests                                      │  │
+│  │  4. Docker build (Kaniko)                           │  │
+│  │  5. Trivy vulnerability scan                        │  │
+│  │  6. Push to Harbor (tst/prd)                        │  │
+│  └─────────────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  Argo CD (GitOps CD Stage)                          │  │
+│  │  1. Sync manifests from Git                         │  │
+│  │  2. Deploy to K8s (GitOps)                          │  │
+│  │  3. Health checks                                   │  │
+│  │  4. Auto-rollback on failure                        │  │
+│  └─────────────────────────────────────────────────────┘  │
+└────────────────────┬──────────────────────────────────────┘
                      │
                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│               KUBERNETES CLUSTER (10.8.0.1)                 │
-│                                                             │
-│  ┌───────────────────────────────────────────────────┐    │
-│  │  Infrastructure                                    │    │
-│  │  • Calico CNI                                      │    │
-│  │  • MetalLB LoadBalancer                           │    │
-│  │  • Traefik Ingress                                │    │
-│  │  • Cert-Manager                                    │    │
-│  └───────────────────────────────────────────────────┘    │
-│                                                             │
-│  ┌───────────────────────────────────────────────────┐    │
-│  │  Storage & Backup                                  │    │
-│  │  • MinIO (S3-compatible)                          │    │
-│  │  • Velero (K8s backup)                            │    │
-│  └───────────────────────────────────────────────────┘    │
-│                                                             │
-│  ┌───────────────────────────────────────────────────┐    │
-│  │  Secrets Management                                │    │
-│  │  • Vault (centralized secrets)                    │    │
-│  │  • External Secrets Operator                       │    │
-│  └───────────────────────────────────────────────────┘    │
-│                                                             │
-│  ┌───────────────────────────────────────────────────┐    │
-│  │  Container Registry                                │    │
-│  │  • Harbor (private registry)                      │    │
-│  │  • Trivy (vulnerability scanner)                  │    │
-│  └───────────────────────────────────────────────────┘    │
-│                                                             │
-│  ┌───────────────────────────────────────────────────┐    │
-│  │  Observability                                     │    │
-│  │  • Prometheus (metrics)                           │    │
-│  │  • Grafana (dashboards)                           │    │
-│  │  • Loki (logs)                                    │    │
-│  │  • Alertmanager (alerting)                        │    │
-│  └───────────────────────────────────────────────────┘    │
-│                                                             │
-│  ┌───────────────────────────────────────────────────┐    │
-│  │  Application Workloads                             │    │
-│  │  • TST Namespace (staging)                        │    │
-│  │  • PRD Namespace (production)                     │    │
-│  └───────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│               KUBERNETES CLUSTER (10.8.0.1)               │
+│                                                           │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  Infrastructure                                     │  │
+│  │  • Calico CNI                                       │  │
+│  │  • MetalLB LoadBalancer                             │  │
+│  │  • Traefik Ingress                                  │  │
+│  │  • Cert-Manager                                     │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                                                           │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  Storage & Backup                                   │  │
+│  │  • MinIO (S3-compatible)                            │  │
+│  │  • Velero (K8s backup)                              │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                                                           │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  Secrets Management                                 │  │
+│  │  • Vault (centralized secrets)                      │  │
+│  │  • External Secrets Operator                        │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                                                           │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  Container Registry                                 │  │
+│  │  • Harbor (private registry)                        │  │
+│  │  • Trivy (vulnerability scanner)                    │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                                                           │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  Observability                                      │  │
+│  │  • Prometheus (metrics)                             │  │
+│  │  • Grafana (dashboards)                             │  │
+│  │  • Loki (logs)                                      │  │
+│  │  • Alertmanager (alerting)                          │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                                                           │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  Application Workloads                              │  │
+│  │  • TST Namespace (staging)                          │  │
+│  │  • PRD Namespace (production)                       │  │
+│  └─────────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────────┘
 ```
 
 ### Princípios da Stack
@@ -108,9 +108,9 @@ Documentação completa da stack de infraestrutura, observabilidade, segurança 
 ### Diagrama de Integração
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            DEVELOPER FLOW                                │
-└────────────┬────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    DEVELOPER FLOW                       │
+└────────────┬────────────────────────────────────────────┘
              │
              │ git push origin develop/main
              ▼
@@ -120,105 +120,105 @@ Documentação completa da stack de infraestrutura, observabilidade, segurança 
 └───────┬────────────────┘
         │ Webhook
         ▼
-┌────────────────────────────────────────────────────────────────┐
-│                    ARGO WORKFLOWS CI PIPELINE                  │
-│                                                                │
-│  ┌──────────────────┐  ┌──────────────────┐                  │
-│  │  Code Quality    │  │  Security Scan   │                  │
-│  │                  │  │                  │                  │
-│  │  • Semgrep       │  │  • Trivy (code)  │                  │
-│  │    SAST scan     │  │  • Trivy (deps)  │                  │
-│  │  • Unit tests    │  │  • OWASP checks  │                  │
-│  │  • Linters       │  │                  │                  │
-│  └────────┬─────────┘  └────────┬─────────┘                  │
-│           │                     │                             │
-│           └──────────┬──────────┘                             │
-│                      ▼                                         │
-│           ┌─────────────────────┐                             │
-│           │   Docker Build      │                             │
-│           │   • Kaniko          │                             │
-│           │   • Layer caching   │                             │
-│           └──────────┬──────────┘                             │
-│                      │                                         │
-│                      ▼                                         │
-│           ┌─────────────────────┐                             │
-│           │  Container Scan     │                             │
-│           │  • Trivy image      │                             │
-│           │  • Check threshold  │                             │
-│           └──────────┬──────────┘                             │
-│                      │                                         │
-│                      ▼                                         │
-│           ┌─────────────────────┐                             │
-│           │  Push to Harbor     │◄────────────────┐           │
-│           │  • tst/ or prd/     │                 │           │
-│           │  • Auto-scan Trivy  │                 │           │
-│           └──────────┬──────────┘                 │           │
-└───────────────────────┼────────────────────────────┼───────────┘
-                        │                            │
-                        │ GitOps Sync                │
-                        ▼                            │
-┌────────────────────────────────────────────────────┼───────────┐
-│                    ARGO CD GITOPS DELIVERY         │           │
-│                                                    │           │
-│  ┌──────────────────────────────────────────┐    │           │
-│  │  1. Sync manifests from Git              │────┘           │
-│  │     • Detect drift                        │                │
-│  │     • Apply desired state                 │                │
-│  └────────────────┬──────────────────────────┘                │
-│                   │                                            │
-│                   ▼                                            │
-│  ┌──────────────────────────────────────────┐                │
-│  │  2. Secrets via External Secrets         │◄──────┐        │
-│  │     • Sync from Vault                    │       │        │
-│  │     • Auto-refresh                        │       │        │
-│  └────────────────┬──────────────────────────┘       │        │
-│                   │                                   │        │
-│                   ▼                                   │        │
-│  ┌──────────────────────────────────────────┐       │        │
-│  │  3. Deploy to Kubernetes                 │       │        │
-│  │     • Progressive rollout                │       │        │
-│  │     • Health checks                      │       │        │
-│  │     • Auto-rollback                      │       │        │
-│  └────────────────┬──────────────────────────┘       │        │
-│                   │                                   │        │
-│                   ▼                                   │        │
-│  ┌──────────────────────────────────────────┐       │        │
-│  │  4. Post-sync hooks                      │       │        │
-│  │     • Smoke tests                        │       │        │
-│  │     • Notifications                      │       │        │
-│  └──────────────────────────────────────────┘       │        │
-└────────────────────────────────────────────────────────────────┘
-                   │                                   │
-                   ▼                                   │
-┌─────────────────────────────────────────────────────┼────────┐
-│                  KUBERNETES CLUSTER                 │        │
-│                                                     │        │
-│  ┌────────────────────┐  ┌───────────────────┐    │        │
-│  │  TST Namespace     │  │  PRD Namespace    │    │        │
-│  │  • Staging apps    │  │  • Prod apps      │    │        │
-│  │  • Test data       │  │  • Real data      │    │        │
-│  └────────────────────┘  └───────────────────┘    │        │
-│                                                     │        │
-│  ┌───────────────────────────────────────────┐    │        │
-│  │  Secrets (from Vault via ESO)             │◄───┘        │
-│  │  • DB credentials                         │             │
-│  │  • API keys                               │             │
-│  │  • TLS certificates                       │             │
-│  └───────────────────────────────────────────┘             │
-│                                                             │
-│  ┌───────────────────────────────────────────┐             │
-│  │  Images (from Harbor)                     │◄────────────┤
-│  │  • harbor.asgard:30880/tst/myapp         │             │
-│  │  • harbor.asgard:30880/prd/myapp         │             │
-│  └───────────────────────────────────────────┘             │
-│                                                             │
-│  ┌───────────────────────────────────────────┐             │
-│  │  Observability                            │             │
-│  │  • Prometheus (metrics scraping)          │             │
-│  │  • Loki (log aggregation)                │             │
-│  │  • Grafana (dashboards)                  │             │
-│  └───────────────────────────────────────────┘             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                     ARGO WORKFLOWS CI PIPELINE          │
+│                                                         │
+│   ┌──────────────────┐  ┌──────────────────┐            │
+│   │  Code Quality    │  │  Security Scan   │            │
+│   │                  │  │                  │            │
+│   │  • Semgrep       │  │  • Trivy (code)  │            │
+│   │    SAST scan     │  │  • Trivy (deps)  │            │
+│   │  • Unit tests    │  │  • OWASP checks  │            │
+│   │  • Linters       │  │                  │            │ 
+│   └────────┬─────────┘  └────────┬─────────┘            │
+│            │                     │                      │
+│            └──────────┬──────────┘                      │
+│                       ▼                                 │
+│            ┌─────────────────────┐                      │
+│            │   Docker Build      │                      │
+│            │   • Kaniko          │                      │
+│            │   • Layer caching   │                      │
+│            └──────────┬──────────┘                      │
+│                       │                                 │
+│                       ▼                                 │
+│            ┌─────────────────────┐                      │
+│            │  Container Scan     │                      │
+│            │  • Trivy image      │                      │
+│            │  • Check threshold  │                      │
+│            └──────────┬──────────┘                      │
+│                       │                                 │
+│                       ▼                                 │
+│            ┌─────────────────────┐                      │
+│            │  Push to Harbor     │◄───────────────┐     │
+│            │  • tst/ or prd/     │                │     │
+│            │  • Auto-scan Trivy  │                │     │
+│            └──────────┬──────────┘                │     │
+└───────────────────────┼───────────────────────────┼─────┘
+                        │                           │
+                        │ GitOps Sync               │
+                        ▼                           │
+┌───────────────────────────────────────────────────┼─────┐
+│                    ARGO CD GITOPS DELIVERY        │     │
+│                                                   │     │
+│  ┌───────────────────────────────────────────┐    │     │
+│  │  1. Sync manifests from Git               │────┘     │
+│  │     • Detect drift                        │          │
+│  │     • Apply desired state                 │          │
+│  └────────────────┬──────────────────────────┘          │
+│                   │                                     │
+│                   ▼                                     │
+│  ┌──────────────────────────────────────────┐           │
+│  │  2. Secrets via External Secrets         │◄──────┐   │
+│  │     • Sync from Vault                    │       │   │ 
+│  │     • Auto-refresh                       │       │   │
+│  └────────────────┬─────────────────────────┘       │   │
+│                   │                                 │   │
+│                   ▼                                 │   │
+│  ┌──────────────────────────────────────────┐       │   │
+│  │  3. Deploy to Kubernetes                 │       │   │
+│  │     • Progressive rollout                │       │   │
+│  │     • Health checks                      │       │   │
+│  │     • Auto-rollback                      │       │   │
+│  └────────────────┬──────────────────────────┘      │   │
+│                   │                                 │   │
+│                   ▼                                 │   │
+│  ┌──────────────────────────────────────────┐       │   │
+│  │  4. Post-sync hooks                      │       │   │
+│  │     • Smoke tests                        │       │   │
+│  │     • Notifications                      │       │   │
+│  └──────────────────────────────────────────┘       │   │
+└─────────────────────────────────────────────────────┼───┘
+                   │                                  │
+                   ▼                                  │
+┌─────────────────────────────────────────────────────┼─ ──┐
+│                  KUBERNETES CLUSTER                 │   │
+│                                                     │   │
+│  ┌────────────────────┐  ┌───────────────────┐      │   │
+│  │  TST Namespace     │  │  PRD Namespace    │      │   │
+│  │  • Staging apps    │  │  • Prod apps      │      │   │
+│  │  • Test data       │  │  • Real data      │      │   │
+│  └────────────────────┘  └───────────────────┘      │   │
+│                                                     │   │
+│  ┌───────────────────────────────────────────┐      │   │
+│  │  Secrets (from Vault via ESO)             │◄─────┘   │
+│  │  • DB credentials                         │          │
+│  │  • API keys                               │          │
+│  │  • TLS certificates                       │          │
+│  └───────────────────────────────────────────┘          │
+│                                                         │
+│  ┌───────────────────────────────────────────┐          │
+│  │  Images (from Harbor)                     │◄─────────┤
+│  │  • harbor.asgard:30880/tst/myapp          │          │
+│  │  • harbor.asgard:30880/prd/myapp          │          │
+│  └───────────────────────────────────────────┘          │
+│                                                         │
+│  ┌───────────────────────────────────────────┐          │
+│  │  Observability                            │          │
+│  │  • Prometheus (metrics scraping)          │          │
+│  │  • Loki (log aggregation)                 │          │
+│  │  • Grafana (dashboards)                   │          │
+│  └───────────────────────────────────────────┘          │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -377,9 +377,9 @@ Application Pods (transparent)
 ### Fluxo TST (Staging)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Developer: git push origin develop                         │
-└────────────┬────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  Developer: git push origin develop                              │
+└────────────┬─────────────────────────────────────────────────────┘
              │
              ▼
      ┌───────────────┐
@@ -387,57 +387,57 @@ Application Pods (transparent)
      └───────┬───────┘
              │ Webhook → Argo Events
              ▼
-┌─────────────────────────────────────────────────────────────┐
-│           ARGO WORKFLOWS CI (TST)                           │
-│                                                             │
-│  [1] Checkout develop branch                               │
-│       ↓                                                     │
-│  [2] Semgrep SAST scan                                     │
-│       • Rules: auto (security, best practices)             │
-│       • Exit code: 0 (warning only)                        │
-│       ↓                                                     │
-│  [3] Run tests                                             │
-│       • Unit tests                                         │
-│       • Coverage report                                    │
-│       ↓                                                     │
-│  [4] Docker build (Kaniko)                                 │
-│       • No Docker daemon needed                            │
-│       • Layer caching                                      │
-│       ↓                                                     │
-│  [5] Trivy image scan                                      │
-│       • Severity: HIGH,CRITICAL                            │
-│       • Exit code: 0 (warning only)                        │
-│       ↓                                                     │
-│  [6] Docker push to Harbor                                 │
-│       • Tag: harbor.asgard.internal/tst/myapp:dev-${WORKFLOW_ID}│
-│       • Harbor auto-scan with Trivy                        │
-│       ↓                                                     │
-│  [7] Update Git repo (image tag)                           │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│           ARGO WORKFLOWS CI (TST)                                │
+│                                                                  │
+│  [1] Checkout develop branch                                     │
+│       ↓                                                          │
+│  [2] Semgrep SAST scan                                           │
+│       • Rules: auto (security, best practices)                   │
+│       • Exit code: 0 (warning only)                              │
+│       ↓                                                          │
+│  [3] Run tests                                                   │
+│       • Unit tests                                               │
+│       • Coverage report                                          │
+│       ↓                                                          │
+│  [4] Docker build (Kaniko)                                       │
+│       • No Docker daemon needed                                  │
+│       • Layer caching                                            │
+│       ↓                                                          │
+│  [5] Trivy image scan                                            │
+│       • Severity: HIGH,CRITICAL                                  │
+│       • Exit code: 0 (warning only)                              │
+│       ↓                                                          │
+│  [6] Docker push to Harbor                                       │
+│       • Tag: harbor.asgard.internal/tst/myapp:dev-${WORKFLOW_ID} │
+│       • Harbor auto-scan with Trivy                              │
+│       ↓                                                          │
+│  [7] Update Git repo (image tag)                                 │
+└──────────────────────────────────────────────────────────────────┘
              │
              ▼
-┌─────────────────────────────────────────────────────────────┐
-│           ARGO CD GITOPS SYNC (TST)                         │
-│                                                             │
-│  [1] Detect Git change (image tag update)                  │
-│       • Auto-sync enabled for TST                          │
-│       ↓                                                     │
-│  [2] Get secrets from Vault                                │
-│       • ExternalSecret syncs to K8s Secret                 │
-│       • DB credentials, API keys, etc                      │
-│       ↓                                                     │
-│  [3] Apply K8s manifests                                   │
-│       • Deployment, Service, Ingress                       │
-│       • Progressive sync                                   │
-│       ↓                                                     │
-│  [4] Health check                                          │
-│       • Wait for pods Ready                                │
-│       • Auto-rollback on failure                           │
-│       ↓                                                     │
-│  [5] Post-sync hooks                                       │
-│       • Smoke tests                                        │
-│       • Slack notification                                 │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│           ARGO CD GITOPS SYNC (TST)                              │
+│                                                                  │
+│  [1] Detect Git change (image tag update)                        │
+│       • Auto-sync enabled for TST                                │
+│       ↓                                                          │
+│  [2] Get secrets from Vault                                      │
+│       • ExternalSecret syncs to K8s Secret                       │
+│       • DB credentials, API keys, etc                            │
+│       ↓                                                          │
+│  [3] Apply K8s manifests                                         │
+│       • Deployment, Service, Ingress                             │
+│       • Progressive sync                                         │
+│       ↓                                                          │
+│  [4] Health check                                                │
+│       • Wait for pods Ready                                      │
+│       • Auto-rollback on failure                                 │
+│       ↓                                                          │
+│  [5] Post-sync hooks                                             │
+│       • Smoke tests                                              │
+│       • Slack notification                                       │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ### Fluxo PRD (Production)
@@ -456,71 +456,71 @@ Application Pods (transparent)
 ┌─────────────────────────────────────────────────────────────┐
 │           ARGO WORKFLOWS CI (PRD)                           │
 │                                                             │
-│  [1] Checkout main branch                                  │
+│  [1] Checkout main branch                                   │
 │       ↓                                                     │
-│  [2] Semgrep SAST scan                                     │
-│       • Rules: auto (security, best practices)             │
-│       • Exit code: 1 if errors found (BLOCK)               │
+│  [2] Semgrep SAST scan                                      │
+│       • Rules: auto (security, best practices)              │
+│       • Exit code: 1 if errors found (BLOCK)                │
 │       ↓                                                     │
-│  [3] Run tests (MUST PASS)                                 │
-│       • Unit tests                                         │
-│       • Integration tests                                  │
-│       • Coverage threshold: 80%                            │
+│  [3] Run tests (MUST PASS)                                  │
+│       • Unit tests                                          │
+│       • Integration tests                                   │
+│       • Coverage threshold: 80%                             │
 │       ↓                                                     │
-│  [4] Docker build (Kaniko)                                 │
-│       • No Docker daemon needed                            │
-│       • Layer caching                                      │
+│  [4] Docker build (Kaniko)                                  │
+│       • No Docker daemon needed                             │
+│       • Layer caching                                       │
 │       ↓                                                     │
-│  [5] Trivy image scan (STRICT)                            │
-│       • Severity: CRITICAL only                            │
-│       • Exit code: 1 if CRITICAL found (BLOCK)             │
+│  [5] Trivy image scan (STRICT)                              │
+│       • Severity: CRITICAL only                             │
+│       • Exit code: 1 if CRITICAL found (BLOCK)              │
 │       ↓                                                     │
-│  [6] Docker push to Harbor                                 │
-│       • Tag: harbor.asgard.internal/prd/myapp:v1.2.3      │
-│       • Harbor auto-scan with Trivy                        │
-│       • Harbor BLOCKS if CRITICAL vulnerabilities          │
+│  [6] Docker push to Harbor                                  │
+│       • Tag: harbor.asgard.internal/prd/myapp:v1.2.3        │
+│       • Harbor auto-scan with Trivy                         │
+│       • Harbor BLOCKS if CRITICAL vulnerabilities           │
 │       ↓                                                     │
-│  [7] Sign image (optional)                                 │
-│       • Cosign sign                                        │
-│       • Content trust validation                           │
+│  [7] Sign image (optional)                                  │
+│       • Cosign sign                                         │
+│       • Content trust validation                            │
 │       ↓                                                     │
-│  [8] Update Git repo (PRD manifest)                        │
+│  [8] Update Git repo (PRD manifest)                         │
 └─────────────────────────────────────────────────────────────┘
              │
              ▼ (Manual Sync required in Argo CD)
 ┌─────────────────────────────────────────────────────────────┐
 │           ARGO CD GITOPS SYNC (PRD)                         │
 │                                                             │
-│  [1] Manual Sync with Preview                              │
-│       • Review diff in Argo CD UI                          │
-│       • Approve deployment                                 │
+│  [1] Manual Sync with Preview                               │
+│       • Review diff in Argo CD UI                           │
+│       • Approve deployment                                  │
 │       ↓                                                     │
-│  [2] Get secrets from Vault                                │
-│       • ExternalSecret syncs to K8s Secret                 │
-│       • Production credentials                             │
+│  [2] Get secrets from Vault                                 │
+│       • ExternalSecret syncs to K8s Secret                  │
+│       • Production credentials                              │
 │       ↓                                                     │
-│  [3] Apply K8s manifests (Progressive)                     │
-│       • Canary or Blue-Green via Argo Rollouts             │
-│       • Set resource limits (production values)            │
+│  [3] Apply K8s manifests (Progressive)                      │
+│       • Canary or Blue-Green via Argo Rollouts              │
+│       • Set resource limits (production values)             │
 │       ↓                                                     │
-│  [4] Health check                                          │
-│       • Wait for pods Ready                                │
-│       • Auto-rollback on failure                           │
+│  [4] Health check                                           │
+│       • Wait for pods Ready                                 │
+│       • Auto-rollback on failure                            │
 │       ↓                                                     │
-│  [5] Post-sync hooks                                       │
-│       • Smoke tests                                        │
-│       • Integration tests                                  │
+│  [5] Post-sync hooks                                        │
+│       • Smoke tests                                         │
+│       • Integration tests                                   │
 │       ↓                                                     │
-│  [6] Progressive rollout                                   │
-│       • Gradual traffic shift                              │
-│       • Monitor metrics                                    │
+│  [6] Progressive rollout                                    │
+│       • Gradual traffic shift                               │ 
+│       • Monitor metrics                                     │
 │       ↓                                                     │
-│  [7] Complete rollout                                      │
-│       • 100% traffic to new version                        │
+│  [7] Complete rollout                                       │
+│       • 100% traffic to new version                         │
 │       ↓                                                     │
-│  [8] Notify + Tag release                                  │
-│       • Slack: "Deploy PRD success ✅ v1.2.3"             │
-│       • Git tag: v1.2.3                                    │
+│  [8] Notify + Tag release                                   │
+│       • Slack: "Deploy PRD success v1.2.3"                  │
+│       • Git tag: v1.2.3                                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -819,7 +819,7 @@ EOF
 ```bash
 # Criar imagePullSecret usando credenciais do Vault
 kubectl create secret docker-registry harbor-pull-secret \
-  --docker-server=192.168.1.81:30880 \
+  --docker-server=192.168.1.100:30880 \
   --docker-username=robot$cicd-prd \
   --docker-password=$(kubectl -n vault exec vault-0 -- \
     vault kv get -field=token secret/harbor/robot-prd) \
@@ -844,7 +844,7 @@ spec:
         .dockerconfigjson: |
           {
             "auths": {
-              "192.168.1.81:30880": {
+              "192.168.1.100:30880": {
                 "username": "{{ .username }}",
                 "password": "{{ .token }}",
                 "auth": "{{ printf "%s:%s" .username .token | b64enc }}"
@@ -867,7 +867,7 @@ spec:
   imagePullSecrets:
   - name: harbor-pull-secret
   containers:
-  - image: 192.168.1.81:30880/prd/myapp:v1.0.0
+  - image: 192.168.1.100:30880/prd/myapp:v1.0.0
 ```
 
 ---

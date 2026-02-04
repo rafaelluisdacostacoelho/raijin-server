@@ -181,7 +181,7 @@ nslookup grafana.asgard.internal
 Resolve-DnsName grafana.asgard.internal
 ```
 
-Deve retornar o IP do nó do cluster (ex: `192.168.1.81`).
+Deve retornar o IP do nó do cluster (ex: `192.168.1.100`).
 
 ## Comparação: Port-Forward vs DNS Interno
 
