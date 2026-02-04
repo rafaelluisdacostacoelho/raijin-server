@@ -112,23 +112,30 @@ for script in "${SCRIPTS[@]}"; do
     fi
 done
 
-# 6. Verificar .env para publicação
+# 6. Verificar credenciais PyPI
 echo -e "\n${CYAN}${BOLD}6. Verificando configuração de publicação...${NC}"
 echo "─────────────────────────────────────────────────────────────"
 
-if [ -f .env ]; then
-    echo -e "${GREEN}✓${NC} .env encontrado"
+if [ -f ~/.pypirc ]; then
+    echo -e "${GREEN}✓${NC} ~/.pypirc encontrado"
     
-    if grep -q "TWINE_API_TOKEN" .env || (grep -q "TWINE_USERNAME" .env && grep -q "TWINE_PASSWORD" .env); then
-        echo -e "${GREEN}✓${NC} Credenciais PyPI configuradas"
+    if grep -q "username" ~/.pypirc && grep -q "password" ~/.pypirc; then
+        echo -e "${GREEN}✓${NC} Credenciais PyPI configuradas em ~/.pypirc"
     else
-        echo -e "${RED}✗${NC} Credenciais PyPI não encontradas no .env"
-        echo "   Configure TWINE_API_TOKEN ou TWINE_USERNAME/TWINE_PASSWORD"
+        echo -e "${RED}✗${NC} ~/.pypirc incompleto"
+        echo "   Configure username e password no arquivo"
         ((ERRORS++))
     fi
+elif [ -n "${TWINE_USERNAME:-}" ] && [ -n "${TWINE_PASSWORD:-}" ]; then
+    echo -e "${GREEN}✓${NC} Credenciais PyPI configuradas via variáveis de ambiente"
 else
-    echo -e "${RED}✗${NC} .env não encontrado"
-    echo "   Crie .env com credenciais PyPI"
+    echo -e "${RED}✗${NC} Credenciais PyPI não encontradas"
+    echo "   Configure ~/.pypirc ou defina TWINE_USERNAME/TWINE_PASSWORD"
+    echo ""
+    echo "   Exemplo ~/.pypirc:"
+    echo "   [pypi]"
+    echo "   username = __token__"
+    echo "   password = pypi-XXXXXXXXXXXXXXXXXXXXXXXX"
     ((ERRORS++))
 fi
 

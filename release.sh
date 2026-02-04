@@ -136,24 +136,20 @@ if $DRY_RUN; then
   echo ""
 fi
 
-# Carregar .env para PyPI (se necessario)
+# Verificar credenciais do PyPI (se necessario)
 if $DO_PYPI && ! $DRY_RUN; then
-  if [[ ! -f "$ROOT/.env" ]]; then
-    log_error "Arquivo .env nao encontrado em $ROOT"
-    exit 1
-  fi
-
-  set -a
-  source "$ROOT/.env"
-  set +a
-
-  if [[ -n "${TWINE_API_TOKEN:-}" ]]; then
-    TWINE_USERNAME="__token__"
-    TWINE_PASSWORD="${TWINE_API_TOKEN}"
-  fi
-
-  if [[ -z "${TWINE_USERNAME:-}" || -z "${TWINE_PASSWORD:-}" ]]; then
-    log_error "Defina TWINE_USERNAME/TWINE_PASSWORD ou TWINE_API_TOKEN no .env"
+  # Twine usa automaticamente ~/.pypirc ou variaveis de ambiente TWINE_USERNAME/TWINE_PASSWORD
+  # Verificar se pelo menos um dos metodos esta configurado
+  if [[ ! -f "$HOME/.pypirc" ]] && [[ -z "${TWINE_USERNAME:-}" || -z "${TWINE_PASSWORD:-}" ]]; then
+    log_error "Credenciais PyPI nao encontradas!"
+    log_info "Configure um dos seguintes:"
+    log_info "  1. Crie ~/.pypirc com suas credenciais (recomendado)"
+    log_info "  2. Defina TWINE_USERNAME e TWINE_PASSWORD como variaveis de ambiente"
+    log_info ""
+    log_info "Exemplo ~/.pypirc:"
+    log_info "  [pypi]"
+    log_info "  username = __token__"
+    log_info "  password = pypi-XXXXXXXXXXXXXXXXXXXXXXXX"
     exit 1
   fi
 fi

@@ -302,16 +302,21 @@ pytest
 ### Publicar no PyPI
 
 ```bash
-# 1. Criar venv limpo para publicação
+# 1. Configurar credenciais PyPI
+# Crie o arquivo ~/.pypirc com seu token:
+cat > ~/.pypirc << 'EOF'
+[pypi]
+username = __token__
+password = pypi-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+EOF
+chmod 600 ~/.pypirc
+
+# 2. Criar venv limpo para publicação
 python3 -m venv ~/.venvs/publish
 source ~/.venvs/publish/bin/activate
 pip install -U pip build twine
 
-# 2. Build
-rm -rf dist build
-python -m build
-
-# 3. Publicar (configure TWINE_API_TOKEN no .env)
+# 3. Build e publicar
 ./release.sh X.X.X
 ```
 
