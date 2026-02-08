@@ -192,11 +192,33 @@ func (s *Store) ListUsers() []*User {
 	return users
 }
 
-func (s *Store) StoreRefreshToken(token, userID string)       { s.mu.Lock(); s.refreshTokens[token] = userID; s.mu.Unlock() }
-func (s *Store) ValidateRefreshToken(token string) (string, bool) { s.mu.RLock(); defer s.mu.RUnlock(); uid, ok := s.refreshTokens[token]; return uid, ok }
-func (s *Store) RevokeRefreshToken(token string)              { s.mu.Lock(); delete(s.refreshTokens, token); s.mu.Unlock() }
-func (s *Store) StoreCSRFToken(token string)                  { s.mu.Lock(); s.csrfTokens[token] = time.Now().Add(24 * time.Hour); s.mu.Unlock() }
-func (s *Store) ValidateCSRFToken(token string) bool          { s.mu.RLock(); defer s.mu.RUnlock(); exp, ok := s.csrfTokens[token]; return ok && time.Now().Before(exp) }
+func (s *Store) StoreRefreshToken(token, userID string) {
+	s.mu.Lock()
+	s.refreshTokens[token] = userID
+	s.mu.Unlock()
+}
+func (s *Store) ValidateRefreshToken(token string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	uid, ok := s.refreshTokens[token]
+	return uid, ok
+}
+func (s *Store) RevokeRefreshToken(token string) {
+	s.mu.Lock()
+	delete(s.refreshTokens, token)
+	s.mu.Unlock()
+}
+func (s *Store) StoreCSRFToken(token string) {
+	s.mu.Lock()
+	s.csrfTokens[token] = time.Now().Add(24 * time.Hour)
+	s.mu.Unlock()
+}
+func (s *Store) ValidateCSRFToken(token string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	exp, ok := s.csrfTokens[token]
+	return ok && time.Now().Before(exp)
+}
 
 // ===========================================================================
 // JWT  (HS256 — stdlib only, zero deps)
