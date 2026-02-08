@@ -1,0 +1,8 @@
+FROM mcr.microsoft.com/dotnet/sdk:9.0
+WORKDIR /app
+COPY *.csproj ./
+RUN dotnet restore
+COPY . .
+EXPOSE 8082
+ENV DOTNET_USE_POLLING_FILE_WATCHER=true
+CMD ["dotnet", "watch", "run", "--urls", "http://0.0.0.0:8082"]

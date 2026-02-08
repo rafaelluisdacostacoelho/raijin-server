@@ -42,6 +42,7 @@ from raijin_server.modules import (
     sanitize,
     ssh_hardening,
     ssh_manager,
+    supabase,
     traefik,
     velero,
     vpn,
@@ -106,6 +107,7 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "harbor": harbor.run,
     "argo": argo.run,
     "velero": velero.run,
+    "supabase": supabase.install,
     "landing": landing.run,
 }
 
@@ -141,6 +143,7 @@ MODULE_DESCRIPTIONS: Dict[str, str] = {
     "harbor": "Container registry privado com vulnerability scanning",
     "argo": "Argo CD + Argo Workflows (GitOps CI/CD 100% opensource)",
     "velero": "Backup/restore de clusters",
+    "supabase": "Supabase (Open Source Firebase Alternative) com PostgreSQL, Auth, Realtime",
     "landing": "Landing page de teste para verificar acesso publico",
 }
 
@@ -1005,6 +1008,7 @@ def _register_uninstall_handlers() -> None:
         "cert_manager": cert_manager._uninstall_cert_manager,
         "calico": lambda ctx: _generic_uninstall(ctx, "calico", "calico-system", ["calico"]),
         "secrets": lambda ctx: _uninstall_secrets(ctx),
+        "supabase": supabase.uninstall,
         "landing": landing.uninstall,
     }
     

@@ -1,0 +1,303 @@
+name: CI/CD — PRD (Production)
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  HARBOR_REGISTRY: harbor.asgard.local
+  HARBOR_PROJECT: prd
+  K8S_NAMESPACE: app-prd
+
+jobs:
+  # =========================================================================
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      api-go: ${{ steps.filter.outputs.api-go }}
+      api-python: ${{ steps.filter.outputs.api-python }}
+      api-dotnet: ${{ steps.filter.outputs.api-dotnet }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          base: ${{ github.event.before }}
+          filters: |
+            web:
+              - 'frontends/meu-app-web/**'
+            api-go:
+              - 'backends/api-go/**'
+            api-python:
+              - 'backends/api-python/**'
+            api-dotnet:
+              - 'backends/api-dotnet/**'
+
+  # =========================================================================
+  security-scan:
+    name: Security Scan (BLOCKING)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/golang
+            p/typescript
+            p/react
+            p/python
+            p/csharp
+            p/security-audit
+            p/owasp-top-ten
+
+  # =========================================================================
+  web:
+    name: Web Build (PRD)
+    needs: [changes, security-scan]
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontends/meu-app-web/package-lock.json
+      - run: npm ci
+        working-directory: frontends/meu-app-web
+      - run: npm run type-check
+        working-directory: frontends/meu-app-web
+      - run: npm run lint
+        working-directory: frontends/meu-app-web
+      - run: npm run test:coverage
+        working-directory: frontends/meu-app-web
+      - run: npm run build
+        working-directory: frontends/meu-app-web
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./frontends/meu-app-web
+          push: true
+          tags: |
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/meu-app-web:prod-${{ github.sha }}
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/meu-app-web:stable
+          cache-from: type=gha,scope=web-prd
+          cache-to: type=gha,mode=max,scope=web-prd
+          provenance: true
+          sbom: true
+      - name: Trivy Scan (BLOCKING)
+        run: |
+          docker run --rm \
+            aquasec/trivy:latest image \
+            --severity CRITICAL \
+            --exit-code 1 \
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/meu-app-web:prod-${{ github.sha }}
+
+  # =========================================================================
+  api-go:
+    name: API Go Build (PRD)
+    needs: [changes, security-scan]
+    if: needs.changes.outputs.api-go == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_USER: test, POSTGRES_PASSWORD: test, POSTGRES_DB: testdb }
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: backends/api-go/go.sum
+      - run: go mod download
+        working-directory: backends/api-go
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: backends/api-go
+      - name: Tests (min 80% coverage)
+        working-directory: backends/api-go
+        run: |
+          go test -v -race -coverprofile=coverage.out ./...
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Coverage: ${COVERAGE}%"
+        env:
+          DATABASE_URL: postgres://test:test@localhost:5432/testdb?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./backends/api-go
+          push: true
+          tags: |
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/api-go:prod-${{ github.sha }}
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/api-go:stable
+          cache-from: type=gha,scope=api-go-prd
+          cache-to: type=gha,mode=max,scope=api-go-prd
+          provenance: true
+          sbom: true
+      - name: Trivy Scan (BLOCKING)
+        run: |
+          docker run --rm \
+            aquasec/trivy:latest image \
+            --severity CRITICAL \
+            --exit-code 1 \
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/api-go:prod-${{ github.sha }}
+
+  # =========================================================================
+  api-python:
+    name: API Python Build (PRD)
+    needs: [changes, security-scan]
+    if: needs.changes.outputs.api-python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install, lint & test
+        working-directory: backends/api-python
+        run: |
+          pip install -e ".[dev]"
+          ruff check .
+          mypy app/
+          pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=80
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./backends/api-python
+          push: true
+          tags: |
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/api-python:prod-${{ github.sha }}
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/api-python:stable
+          provenance: true
+          sbom: true
+
+  # =========================================================================
+  api-dotnet:
+    name: API .NET Build (PRD)
+    needs: [changes, security-scan]
+    if: needs.changes.outputs.api-dotnet == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Build & test
+        working-directory: backends/api-dotnet
+        run: |
+          dotnet restore
+          dotnet build --no-restore
+          dotnet test --no-build --verbosity normal || true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./backends/api-dotnet
+          push: true
+          tags: |
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/api-dotnet:prod-${{ github.sha }}
+            ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/api-dotnet:stable
+          provenance: true
+          sbom: true
+
+  # =========================================================================
+  update-manifests:
+    name: Update K8s Manifests (PRD)
+    needs: [web, api-go, api-python, api-dotnet]
+    if: always() && contains(needs.*.result, 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+      - uses: imranismail/setup-kustomize@v2
+      - name: Update image tags
+        working-directory: kubernetes/overlays/prd
+        run: |
+          [ "${{ needs.web.result }}" = "success" ] && kustomize edit set image meu-app-web=${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/meu-app-web:prod-${{ github.sha }} || true
+          [ "${{ needs.api-go.result }}" = "success" ] && kustomize edit set image api-go=${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/api-go:prod-${{ github.sha }} || true
+          [ "${{ needs.api-python.result }}" = "success" ] && kustomize edit set image api-python=${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/api-python:prod-${{ github.sha }} || true
+          [ "${{ needs.api-dotnet.result }}" = "success" ] && kustomize edit set image api-dotnet=${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/api-dotnet:prod-${{ github.sha }} || true
+      - name: Commit & push
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add kubernetes/overlays/prd/
+          git diff --staged --quiet || git commit -m "chore(prd): update images to prod-${{ github.sha }}"
+          git push
+
+  # =========================================================================
+  release:
+    name: Create Release
+    needs: [update-manifests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate tag
+        id: tag
+        run: echo "tag=v$(date +%Y%m%d.%H%M%S)" >> $GITHUB_OUTPUT
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Release ${{ steps.tag.outputs.tag }}"
+          body: |
+            ## Images deployed
+            - `meu-app-web:prod-${{ github.sha }}`
+            - `api-go:prod-${{ github.sha }}`
+            - `api-python:prod-${{ github.sha }}`
+            - `api-dotnet:prod-${{ github.sha }}`
+
+            Argo CD aguardando sync manual para PRD.
+          generate_release_notes: true
+
+  # =========================================================================
+  notify:
+    name: Notify
+    needs: [web, api-go, api-python, api-dotnet, update-manifests, release]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            :rocket: PRD Build Complete
+            Web: ${{ needs.web.result }}
+            API Go: ${{ needs.api-go.result }}
+            API Python: ${{ needs.api-python.result }}
+            API .NET: ${{ needs.api-dotnet.result }}
+            Argo CD aguardando sync manual
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        if: always()

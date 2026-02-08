@@ -1,0 +1,77 @@
+# PodDisruptionBudget - Garante disponibilidade durante updates
+# Previne que todos os pods sejam terminados simultaneamente
+
+---
+# PDB para Kong Gateway
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: supabase-kong-pdb
+  namespace: supabase
+  labels:
+    app: supabase-kong
+spec:
+  minAvailable: 1  # Pelo menos 1 pod sempre disponível
+  selector:
+    matchLabels:
+      app: supabase-kong
+
+---
+# PDB para PostgREST
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: supabase-postgrest-pdb
+  namespace: supabase
+  labels:
+    app: supabase-postgrest
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: supabase-postgrest
+
+---
+# PDB para GoTrue (Auth)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: supabase-gotrue-pdb
+  namespace: supabase
+  labels:
+    app: supabase-gotrue
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: supabase-gotrue
+
+---
+# PDB para Realtime
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: supabase-realtime-pdb
+  namespace: supabase
+  labels:
+    app: supabase-realtime
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: supabase-realtime
+
+---
+# PDB para Storage
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: supabase-storage-pdb
+  namespace: supabase
+  labels:
+    app: supabase-storage
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: supabase-storage

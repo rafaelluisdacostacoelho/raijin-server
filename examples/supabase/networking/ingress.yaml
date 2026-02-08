@@ -1,0 +1,37 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: supabase-ingress
+  namespace: supabase
+  annotations:
+    # Cert-Manager para TLS automático
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    
+    # Traefik annotations
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    
+    # Rate limiting (opcional)
+    # traefik.ingress.kubernetes.io/router.middlewares: supabase-ratelimit@kubernetescrd
+    
+    # NGINX annotations (se usar NGINX ao invés de Traefik)
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  ingressClassName: traefik  # ou "nginx"
+  tls:
+  - hosts:
+    - supabase.cryptidnest.com
+    secretName: supabase-tls
+  rules:
+  - host: supabase.cryptidnest.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: supabase-kong
+            port:
+              number: 8000

@@ -1,0 +1,63 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: app-prd
+
+resources:
+  - ../../base
+  - hpa.yaml
+  - pdb.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: meu-app-web
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 3
+  - target:
+      kind: Deployment
+      name: api-go
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 3
+  - target:
+      kind: Deployment
+      name: api-python
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+  - target:
+      kind: Deployment
+      name: api-dotnet
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+images:
+  - name: meu-app-web
+    newName: harbor.asgard.local/prd/meu-app-web
+    newTag: stable
+  - name: api-go
+    newName: harbor.asgard.local/prd/api-go
+    newTag: stable
+  - name: api-python
+    newName: harbor.asgard.local/prd/api-python
+    newTag: stable
+  - name: api-dotnet
+    newName: harbor.asgard.local/prd/api-dotnet
+    newTag: stable
+
+commonLabels:
+  environment: prd
+
+configMapGenerator:
+  - name: app-config
+    literals:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      - CORS_ORIGINS=https://app.asgard.local

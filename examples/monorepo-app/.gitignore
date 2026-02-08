@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+vendor/
+__pycache__/
+*.pyc
+.venv/
+venv/
+bin/
+obj/
+
+# Build outputs
+dist/
+build/
+tmp/
+*.exe
+*.dll
+*.so
+*.dylib
+out/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Coverage
+coverage/
+*.out
+*.lcov
+htmlcov/
+
+# Test artifacts
+test-results/
+playwright-report/

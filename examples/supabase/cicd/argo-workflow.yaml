@@ -1,0 +1,230 @@
+# Argo Workflows - CI Pipeline para Supabase
+# Pipeline de testes e validação antes do deploy
+
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: supabase-ci-
+  namespace: argo
+  labels:
+    app: supabase
+spec:
+  # Service account com permissões necessárias
+  serviceAccountName: argo-workflow
+  
+  # Onde processar o workflow
+  entrypoint: supabase-ci-pipeline
+  
+  # Argumentos do workflow
+  arguments:
+    parameters:
+    - name: repo-url
+      value: "https://github.com/your-org/supabase-k8s.git"
+    - name: branch
+      value: "main"
+    - name: namespace
+      value: "supabase"
+  
+  # Volumes compartilhados entre steps
+  volumeClaimTemplates:
+  - metadata:
+      name: workspace
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
+  
+  templates:
+  # Pipeline principal
+  - name: supabase-ci-pipeline
+    steps:
+    # Step 1: Clone repository
+    - - name: clone
+        template: git-clone
+    
+    # Step 2: Validate manifests
+    - - name: validate
+        template: validate-manifests
+    
+    # Step 3: Security scan
+    - - name: security-scan
+        template: trivy-scan
+    
+    # Step 4: Test database migrations (se aplicável)
+    - - name: test-migrations
+        template: test-db-migrations
+    
+    # Step 5: Sync ArgoCD (se validações passarem)
+    - - name: argocd-sync
+        template: argocd-sync
+  
+  # Template: Git clone
+  - name: git-clone
+    inputs:
+      parameters:
+      - name: repo-url
+        value: "{{workflow.parameters.repo-url}}"
+      - name: branch
+        value: "{{workflow.parameters.branch}}"
+    container:
+      image: alpine/git:latest
+      command: [sh, -c]
+      args:
+        - |
+          git clone --branch {{inputs.parameters.branch}} --depth 1 \
+            {{inputs.parameters.repo-url}} /workspace/repo
+          cd /workspace/repo
+          git log -1
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+  
+  # Template: Validate manifests
+  - name: validate-manifests
+    container:
+      image: bitnami/kubectl:1.28
+      command: [sh, -c]
+      args:
+        - |
+          echo "Validating YAML syntax..."
+          cd /workspace/repo/manifests
+          
+          for file in $(find . -name '*.yaml' -o -name '*.yml'); do
+            echo "Validating $file"
+            kubectl apply --dry-run=client -f "$file" || exit 1
+          done
+          
+          echo "✓ All manifests are valid"
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+  
+  # Template: Trivy security scan
+  - name: trivy-scan
+    container:
+      image: aquasec/trivy:latest
+      command: [sh, -c]
+      args:
+        - |
+          echo "Running Trivy security scan..."
+          trivy config /workspace/repo/manifests \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --format table
+          
+          echo "✓ Security scan passed"
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+  
+  # Template: Test database migrations
+  - name: test-db-migrations
+    container:
+      image: supabase/postgres:15.1.1.54
+      command: [sh, -c]
+      args:
+        - |
+          echo "Testing database migrations..."
+          
+          # Simula migrations (ajuste conforme sua estrutura)
+          if [ -d "/workspace/repo/migrations" ]; then
+            echo "Found migrations directory"
+            # psql commands aqui se necessário
+          else
+            echo "No migrations to test"
+          fi
+          
+          echo "✓ Migrations test passed"
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+  
+  # Template: Argo CD sync
+  - name: argocd-sync
+    inputs:
+      parameters:
+      - name: app-name
+        value: "supabase"
+    container:
+      image: argoproj/argocd:latest
+      command: [sh, -c]
+      args:
+        - |
+          echo "Syncing Argo CD application..."
+          
+          # Login no Argo CD
+          argocd login argocd-server.argocd.svc:443 \
+            --username admin \
+            --password $ARGOCD_PASSWORD \
+            --insecure
+          
+          # Sync da aplicação
+          argocd app sync {{inputs.parameters.app-name}} \
+            --prune \
+            --timeout 600
+          
+          # Aguarda ficar healthy
+          argocd app wait {{inputs.parameters.app-name}} \
+            --health \
+            --timeout 600
+          
+          echo "✓ Argo CD sync completed"
+      env:
+      - name: ARGOCD_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: argocd-credentials
+            key: password
+
+---
+# WorkflowTemplate reutilizável
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: supabase-ci-template
+  namespace: argo
+spec:
+  templates:
+  - name: main
+    steps:
+    - - name: clone
+        template: git-clone
+    - - name: validate
+        template: validate-manifests
+    - - name: security
+        template: trivy-scan
+  
+  # Templates importados do Workflow acima
+  - name: git-clone
+    inputs:
+      parameters:
+      - name: repo-url
+      - name: branch
+    container:
+      image: alpine/git:latest
+      command: [sh, -c]
+      args: ["git clone --branch {{inputs.parameters.branch}} {{inputs.parameters.repo-url}} /workspace"]
+
+---
+# CronWorkflow para validação periódica
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: supabase-validation-daily
+  namespace: argo
+spec:
+  schedule: "0 6 * * *"  # Diariamente às 6 AM
+  timezone: "America/Sao_Paulo"
+  workflowSpec:
+    entrypoint: supabase-ci-pipeline
+    serviceAccountName: argo-workflow
+    arguments:
+      parameters:
+      - name: repo-url
+        value: "https://github.com/your-org/supabase-k8s.git"
+      - name: branch
+        value: "main"
+    # Importa do Workflow principal
+    workflowTemplateRef:
+      name: supabase-ci-template

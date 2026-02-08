@@ -1,0 +1,150 @@
+# CronJob para pg_dump do PostgreSQL
+# Backup SQL adicional para redundância
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backups
+  namespace: supabase
+spec:
+  accessModes:
+    - ReadWriteMany  # Para compartilhar entre jobs
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: supabase
+  labels:
+    app: postgres-backup
+spec:
+  # Diariamente às 3 AM (1 hora após o Velero)
+  schedule: "0 3 * * *"
+  
+  # Manter últimos 5 jobs
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 3
+  
+  jobTemplate:
+    metadata:
+      labels:
+        app: postgres-backup
+    spec:
+      template:
+        metadata:
+          labels:
+            app: postgres-backup
+        spec:
+          restartPolicy: OnFailure
+          
+          containers:
+          - name: backup
+            image: postgres:15
+            
+            env:
+            - name: PGHOST
+              value: "postgres.supabase.svc"
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: "postgres"
+            - name: PGUSER
+              value: "postgres"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: supabase-postgres
+                  key: password
+            
+            command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              
+              BACKUP_FILE="/backup/postgres-$(date +\%Y\%m\%d-\%H\%M\%S).sql.gz"
+              
+              echo "Starting PostgreSQL backup to $BACKUP_FILE"
+              
+              # Backup com pg_dump e compressão
+              pg_dump --verbose | gzip > "$BACKUP_FILE"
+              
+              echo "Backup completed: $BACKUP_FILE"
+              
+              # Limpar backups antigos (manter últimos 7 dias)
+              find /backup -name "postgres-*.sql.gz" -type f -mtime +7 -delete
+              
+              echo "Old backups cleaned up"
+              
+              # Listar backups disponíveis
+              echo "Available backups:"
+              ls -lh /backup/
+            
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backup
+            
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+          
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: postgres-backups
+
+---
+# Job manual de restore (descomente e aplique quando necessário)
+# apiVersion: batch/v1
+# kind: Job
+# metadata:
+#   name: postgres-restore
+#   namespace: supabase
+# spec:
+#   template:
+#     spec:
+#       restartPolicy: Never
+#       containers:
+#       - name: restore
+#         image: postgres:15
+#         env:
+#         - name: PGHOST
+#           value: "postgres.supabase.svc"
+#         - name: PGPORT
+#           value: "5432"
+#         - name: PGDATABASE
+#           value: "postgres"
+#         - name: PGUSER
+#           value: "postgres"
+#         - name: PGPASSWORD
+#           valueFrom:
+#             secretKeyRef:
+#               name: supabase-postgres
+#               key: password
+#         - name: BACKUP_FILE
+#           value: "postgres-20260208-030000.sql.gz"  # ⚠️  Ajuste para o arquivo desejado
+#         command:
+#         - /bin/bash
+#         - -c
+#         - |
+#           set -e
+#           echo "Restoring from /backup/$BACKUP_FILE"
+#           gunzip -c "/backup/$BACKUP_FILE" | psql
+#           echo "Restore completed"
+#         volumeMounts:
+#         - name: backup-storage
+#           mountPath: /backup
+#       volumes:
+#       - name: backup-storage
+#         persistentVolumeClaim:
+#           claimName: postgres-backups

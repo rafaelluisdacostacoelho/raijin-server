@@ -1,0 +1,49 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: meu-app-web-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: meu-app-web
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-go-pdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: api-go
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-python-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: api-python
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-dotnet-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: api-dotnet
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: postgres

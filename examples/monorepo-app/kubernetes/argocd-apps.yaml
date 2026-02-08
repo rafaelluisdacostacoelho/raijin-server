@@ -1,0 +1,60 @@
+# TST Application (auto-sync)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: meu-app-tst
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/your-org/your-app.git
+    targetRevision: develop
+    path: kubernetes/overlays/tst
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app-tst
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+# PRD Application (manual sync — requer aprovação)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: meu-app-prd
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/your-org/your-app.git
+    targetRevision: main
+    path: kubernetes/overlays/prd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app-prd
+  # SEM syncPolicy automated = deploy manual obrigatório
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: meu-app-project
+  namespace: argocd
+spec:
+  description: "Meu App Monorepo"
+  sourceRepos:
+    - https://github.com/your-org/your-app.git
+  destinations:
+    - namespace: app-tst
+      server: https://kubernetes.default.svc
+    - namespace: app-prd
+      server: https://kubernetes.default.svc
+  roles:
+    - name: developer
+      description: "Pode sync em TST"
+      policies:
+        - p, proj:meu-app-project:developer, applications, sync, meu-app-project/meu-app-tst, allow
+    - name: deployer
+      description: "Pode sync em TST e PRD"
+      policies:
+        - p, proj:meu-app-project:deployer, applications, sync, meu-app-project/*, allow

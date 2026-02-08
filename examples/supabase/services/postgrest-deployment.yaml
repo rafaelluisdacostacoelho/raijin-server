@@ -1,0 +1,86 @@
+# PostgREST - Auto-generated REST API from PostgreSQL schema
+# Escala horizontalmente (2-4 réplicas recomendado)
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: supabase-postgrest
+  namespace: supabase
+  labels:
+    app: supabase-postgrest
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+  selector:
+    app: supabase-postgrest
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supabase-postgrest
+  namespace: supabase
+  labels:
+    app: supabase-postgrest
+spec:
+  replicas: 2  # Ajuste conforme carga
+  selector:
+    matchLabels:
+      app: supabase-postgrest
+  template:
+    metadata:
+      labels:
+        app: supabase-postgrest
+    spec:
+      containers:
+      - name: postgrest
+        image: postgrest/postgrest:v12.0.2
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: PGRST_DB_URI
+          value: "postgresql://postgres:$(POSTGRES_PASSWORD)@postgres.supabase.svc:5432/postgres"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: supabase-postgres
+              key: password
+        - name: PGRST_DB_SCHEMAS
+          value: "public,storage,graphql_public"
+        - name: PGRST_DB_ANON_ROLE
+          value: "anon"
+        - name: PGRST_DB_USE_LEGACY_GUCS
+          value: "false"
+        - name: PGRST_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: supabase-jwt
+              key: secret
+        - name: PGRST_DB_MAX_ROWS
+          value: "1000"
+        - name: PGRST_DB_EXTRA_SEARCH_PATH
+          value: "public,extensions"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5

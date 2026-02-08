@@ -1,0 +1,59 @@
+# ServiceMonitor para Prometheus
+# Coleta métricas dos serviços Supabase
+
+---
+# ServiceMonitor para PostgreSQL
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: supabase-postgres
+  namespace: supabase
+  labels:
+    app: postgres
+    release: prometheus  # Label necessária para o Prometheus encontrar
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+
+---
+# ServiceMonitor para Kong
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: supabase-kong
+  namespace: supabase
+  labels:
+    app: supabase-kong
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: supabase-kong
+  endpoints:
+  - port: http
+    interval: 30s
+    path: /metrics
+
+---
+# Service adicional do PostgreSQL para métricas (opcional)
+# Requer postgres_exporter como sidecar
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: postgres-metrics
+#   namespace: supabase
+#   labels:
+#     app: postgres
+# spec:
+#   type: ClusterIP
+#   ports:
+#   - name: metrics
+#     port: 9187
+#     targetPort: 9187
+#   selector:
+#     app: postgres

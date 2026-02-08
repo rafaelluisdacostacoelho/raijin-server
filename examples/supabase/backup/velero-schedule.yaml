@@ -1,0 +1,84 @@
+# Velero Schedule - Backup automático diário
+# Faz backup completo do namespace supabase incluindo PVCs
+
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: supabase-daily-backup
+  namespace: velero
+  labels:
+    app: supabase
+spec:
+  # Cron schedule: diariamente às 2 AM
+  schedule: "0 2 * * *"
+  
+  template:
+    # Namespaces a incluir no backup
+    includedNamespaces:
+      - supabase
+    
+    # TTL: 720 horas = 30 dias
+    ttl: 720h
+    
+    # Storage location (definido na instalação do Velero)
+    storageLocation: default
+    
+    # Volume snapshot locations
+    volumeSnapshotLocations:
+      - default
+    
+    # Incluir recursos de cluster (opcional)
+    includeClusterResources: false
+    
+    # Hooks para executar antes/depois do backup (opcional)
+    # hooks:
+    #   resources:
+    #     - name: postgres-backup-hook
+    #       includedNamespaces:
+    #         - supabase
+    #       labelSelector:
+    #         matchLabels:
+    #           app: postgres
+    #       pre:
+    #         - exec:
+    #             command:
+    #               - /bin/bash
+    #               - -c
+    #               - pg_dump -U postgres postgres > /tmp/backup.sql
+    #             container: postgres
+    #             onError: Continue
+    
+    # Labels para organização
+    metadata:
+      labels:
+        backup-type: scheduled
+        app: supabase
+
+---
+# Backup semanal com retenção maior (opcional)
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: supabase-weekly-backup
+  namespace: velero
+  labels:
+    app: supabase
+spec:
+  # Todo domingo às 3 AM
+  schedule: "0 3 * * 0"
+  
+  template:
+    includedNamespaces:
+      - supabase
+    
+    # TTL: 2160 horas = 90 dias
+    ttl: 2160h
+    
+    storageLocation: default
+    volumeSnapshotLocations:
+      - default
+    
+    metadata:
+      labels:
+        backup-type: weekly
+        app: supabase

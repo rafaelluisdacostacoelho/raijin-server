@@ -1,0 +1,175 @@
+# PrometheusRule - Alertas para Supabase
+# Define regras de alerta para problemas comuns
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: supabase-alerts
+  namespace: supabase
+  labels:
+    prometheus: supabase
+    role: alert-rules
+spec:
+  groups:
+  - name: supabase-database
+    interval: 30s
+    rules:
+    # PostgreSQL está down
+    - alert: PostgreSQLDown
+      expr: up{job="postgres", namespace="supabase"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        component: database
+      annotations:
+        summary: "PostgreSQL está down"
+        description: "PostgreSQL no namespace supabase está inacessível por mais de 5 minutos"
+    
+    # Conexões altas no PostgreSQL
+    - alert: PostgreSQLHighConnections
+      expr: pg_stat_database_numbackends{datname="postgres"} > 80
+      for: 5m
+      labels:
+        severity: warning
+        component: database
+      annotations:
+        summary: "PostgreSQL com muitas conexões"
+        description: "PostgreSQL tem {{ $value }} conexões ativas (limite recomendado: 80)"
+    
+    # Storage do PostgreSQL acima de 80%
+    - alert: PostgreSQLStorageHigh
+      expr: |
+        (kubelet_volume_stats_used_bytes{namespace="supabase",persistentvolumeclaim="postgres-data"} 
+        / kubelet_volume_stats_capacity_bytes{namespace="supabase",persistentvolumeclaim="postgres-data"}) > 0.8
+      for: 10m
+      labels:
+        severity: warning
+        component: storage
+      annotations:
+        summary: "Storage do PostgreSQL acima de 80%"
+        description: "PVC postgres-data está com {{ $value | humanizePercentage }} de uso"
+    
+    # Storage crítico acima de 90%
+    - alert: PostgreSQLStorageCritical
+      expr: |
+        (kubelet_volume_stats_used_bytes{namespace="supabase",persistentvolumeclaim="postgres-data"} 
+        / kubelet_volume_stats_capacity_bytes{namespace="supabase",persistentvolumeclaim="postgres-data"}) > 0.9
+      for: 5m
+      labels:
+        severity: critical
+        component: storage
+      annotations:
+        summary: "Storage do PostgreSQL CRÍTICO"
+        description: "PVC postgres-data está com {{ $value | humanizePercentage }} de uso. Expandir urgente!"
+
+  - name: supabase-services
+    interval: 30s
+    rules:
+    # Kong Gateway down
+    - alert: SupabaseKongDown
+      expr: up{job="supabase-kong", namespace="supabase"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        component: gateway
+      annotations:
+        summary: "Kong Gateway está down"
+        description: "Kong Gateway no namespace supabase está inacessível"
+    
+    # PostgREST down
+    - alert: SupabasePostgRESTDown
+      expr: kube_deployment_status_replicas_available{namespace="supabase",deployment="supabase-postgrest"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        component: api
+      annotations:
+        summary: "PostgREST está down"
+        description: "Nenhuma réplica do PostgREST está disponível"
+    
+    # GoTrue (Auth) down
+    - alert: SupabaseGoTrueDown
+      expr: kube_deployment_status_replicas_available{namespace="supabase",deployment="supabase-gotrue"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        component: auth
+      annotations:
+        summary: "GoTrue (Auth) está down"
+        description: "Nenhuma réplica do GoTrue está disponível"
+    
+    # Realtime down
+    - alert: SupabaseRealtimeDown
+      expr: kube_deployment_status_replicas_available{namespace="supabase",deployment="supabase-realtime"} == 0
+      for: 5m
+      labels:
+        severity: warning
+        component: realtime
+      annotations:
+        summary: "Realtime está down"
+        description: "Nenhuma réplica do Realtime está disponível"
+    
+    # Pod crashlooping
+    - alert: SupabasePodCrashLooping
+      expr: rate(kube_pod_container_status_restarts_total{namespace="supabase"}[15m]) > 0
+      for: 5m
+      labels:
+        severity: warning
+        component: pods
+      annotations:
+        summary: "Pod {{ $labels.pod }} está em crash loop"
+        description: "Pod {{ $labels.pod }} reiniciou {{ $value }} vezes nos últimos 15 minutos"
+
+  - name: supabase-performance
+    interval: 30s
+    rules:
+    # CPU alto
+    - alert: SupabaseHighCPU
+      expr: |
+        sum(rate(container_cpu_usage_seconds_total{namespace="supabase"}[5m])) by (pod) 
+        / sum(container_spec_cpu_quota{namespace="supabase"}/container_spec_cpu_period{namespace="supabase"}) by (pod) > 0.8
+      for: 10m
+      labels:
+        severity: warning
+        component: performance
+      annotations:
+        summary: "Pod {{ $labels.pod }} com CPU alto"
+        description: "Pod {{ $labels.pod }} está usando {{ $value | humanizePercentage }} de CPU"
+    
+    # Memory alto
+    - alert: SupabaseHighMemory
+      expr: |
+        sum(container_memory_working_set_bytes{namespace="supabase"}) by (pod) 
+        / sum(container_spec_memory_limit_bytes{namespace="supabase"}) by (pod) > 0.8
+      for: 10m
+      labels:
+        severity: warning
+        component: performance
+      annotations:
+        summary: "Pod {{ $labels.pod }} com memória alta"
+        description: "Pod {{ $labels.pod }} está usando {{ $value | humanizePercentage }} de memória"
+
+  - name: supabase-backup
+    interval: 1h
+    rules:
+    # Backup falhou
+    - alert: SupabaseBackupFailed
+      expr: velero_backup_failure_total{schedule="supabase-daily-backup"} > 0
+      for: 1h
+      labels:
+        severity: warning
+        component: backup
+      annotations:
+        summary: "Backup do Supabase falhou"
+        description: "Backup schedule 'supabase-daily-backup' falhou {{ $value }} vezes"
+    
+    # Backup atrasado
+    - alert: SupabaseBackupDelayed
+      expr: time() - velero_backup_last_successful_timestamp{schedule="supabase-daily-backup"} > 86400
+      for: 1h
+      labels:
+        severity: warning
+        component: backup
+      annotations:
+        summary: "Backup do Supabase atrasado"
+        description: "Último backup bem-sucedido foi há {{ $value | humanizeDuration }}"

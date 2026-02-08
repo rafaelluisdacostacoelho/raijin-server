@@ -1,0 +1,137 @@
+# ============================================================================
+# Docker Compose — Development Environment
+# ============================================================================
+# Uso: docker compose up -d
+#
+# Serviços:
+#   - meu-app-web  (React)       → http://localhost:5173
+#   - api-go       (Go API)      → http://localhost:8080
+#   - api-python   (Python API)  → http://localhost:8081
+#   - api-dotnet   (C# API)      → http://localhost:8082
+#   - postgres                    → localhost:5432
+#   - redis                       → localhost:6379
+#   - mailhog                     → http://localhost:8025
+#   - adminer                     → http://localhost:8181
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # Frontend — React (meu-app-web)
+  # --------------------------------------------------------------------------
+  meu-app-web:
+    build:
+      context: ./frontends/meu-app-web
+      dockerfile: Dockerfile
+      target: builder
+    command: npm run dev -- --host 0.0.0.0
+    working_dir: /app
+    volumes:
+      - ./frontends/meu-app-web:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_ENV=development
+    depends_on:
+      - api-go
+
+  # --------------------------------------------------------------------------
+  # Backend — Go API (principal)
+  # --------------------------------------------------------------------------
+  api-go:
+    build:
+      context: ./backends/api-go
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./backends/api-go:/app
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_PORT=8080
+      - SERVER_ENVIRONMENT=development
+      - CORS_ORIGINS=http://localhost:5173
+      - JWT_SECRET=dev-jwt-secret-CHANGE-IN-PRODUCTION
+      - DATABASE_URL=postgres://app:devpassword@postgres:5432/appdb?sslmode=disable
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # --------------------------------------------------------------------------
+  # Backend — Python API
+  # --------------------------------------------------------------------------
+  api-python:
+    build:
+      context: ./backends/api-python
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./backends/api-python:/app
+    ports:
+      - "8081:8081"
+    environment:
+      - SERVER_PORT=8081
+      - CORS_ORIGINS=http://localhost:5173
+      - DATABASE_URL=postgres://app:devpassword@postgres:5432/appdb?sslmode=disable
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # --------------------------------------------------------------------------
+  # Backend — .NET API
+  # --------------------------------------------------------------------------
+  api-dotnet:
+    build:
+      context: ./backends/api-dotnet
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./backends/api-dotnet:/app
+    ports:
+      - "8082:8082"
+    environment:
+      - SERVER_PORT=8082
+      - CORS_ORIGINS=http://localhost:5173
+      - ASPNETCORE_URLS=http://+:8082
+
+  # --------------------------------------------------------------------------
+  # Infrastructure
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=app
+      - POSTGRES_PASSWORD=devpassword
+      - POSTGRES_DB=appdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d appdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  adminer:
+    image: adminer
+    ports:
+      - "8181:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+
+volumes:
+  postgres_data:

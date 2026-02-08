@@ -1,0 +1,10 @@
+{
+  "name": "meu-app-apk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Android app placeholder - substitua por React Native, Flutter ou projeto nativo",
+  "scripts": {
+    "start": "echo 'Configure seu projeto Android aqui'",
+    "test": "echo 'Nenhum teste configurado'"
+  }
+}

@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: app
+
+resources:
+  - namespace.yaml
+  - ingress.yaml
+  - externalsecrets.yaml
+  - meu-app-web/deployment.yaml
+  - meu-app-web/service.yaml
+  - api-go/deployment.yaml
+  - api-go/service.yaml
+  - api-python/deployment.yaml
+  - api-python/service.yaml
+  - api-dotnet/deployment.yaml
+  - api-dotnet/service.yaml
+  - database/statefulset.yaml
+  - database/service.yaml
+  - database/pvc.yaml
+  - redis/deployment.yaml
+  - redis/service.yaml
+
+images:
+  - name: meu-app-web
+    newName: harbor.asgard.local/tst/meu-app-web
+    newTag: latest
+  - name: api-go
+    newName: harbor.asgard.local/tst/api-go
+    newTag: latest
+  - name: api-python
+    newName: harbor.asgard.local/tst/api-python
+    newTag: latest
+  - name: api-dotnet
+    newName: harbor.asgard.local/tst/api-dotnet
+    newTag: latest
+
+commonLabels:
+  app.kubernetes.io/part-of: meu-app
+  app.kubernetes.io/managed-by: kustomize

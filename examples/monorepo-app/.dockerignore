@@ -1,0 +1,54 @@
+# Git
+.git
+.gitignore
+
+# Dependencies
+node_modules
+vendor
+__pycache__
+.venv
+
+# Build artifacts
+dist
+build
+tmp
+out
+*.exe
+*.dll
+*.so
+
+# Test files
+*_test.go
+tests/
+__tests__
+*.test.ts
+*.spec.ts
+coverage/
+
+# IDE
+.idea
+.vscode
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Docs
+*.md
+docs/
+LICENSE
+
+# CI/CD
+.github/
+Makefile
+docker-compose*.yml
+scripts/

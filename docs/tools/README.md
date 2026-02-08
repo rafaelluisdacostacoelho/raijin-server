@@ -88,6 +88,12 @@ Este guia cobre a instalação, configuração, operação e troubleshooting de 
 |------------|-----------|------|------|
 | **[Argo](argo.md)** | Argo CD (GitOps) + Argo Workflows (CI pipelines) | CI/CD | ⭐⭐⭐ |
 
+### Plataformas e Aplicações
+
+| Componente | Descrição | Tipo | Docs |
+|------------|-----------|------|------|
+| **[Supabase](supabase.md)** | Open Source Firebase Alternative (PostgreSQL + Auth + Realtime + Storage) | BaaS | ⭐⭐⭐ |
+
 ---
 
 ## 🚀 Início Rápido

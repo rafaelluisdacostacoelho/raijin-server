@@ -31,6 +31,7 @@ MODULE_DEPENDENCIES = {
     "secrets": ["kubernetes"],
     "argo": ["kubernetes"],
     "velero": ["kubernetes"],
+    "supabase": ["kubernetes", "traefik", "cert_manager"],
     "landing": ["kubernetes", "traefik"],
     "observability_ingress": ["traefik", "prometheus", "grafana"],
     "observability_dashboards": ["prometheus", "grafana"],

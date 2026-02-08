@@ -21,7 +21,7 @@ Guia completo para publicar sites, APIs e sistemas na internet usando Traefik + 
                                   ▼
                     ┌─────────────────────────────┐
                     │       IP Público Fixo       │
-                    │        203.0.113.50        │
+                    │        203.0.113.50         │
                     │                             │
                     │      Porta 80  (HTTP)       │
                     │      Porta 443 (HTTPS)      │
@@ -30,39 +30,39 @@ Guia completo para publicar sites, APIs e sistemas na internet usando Traefik + 
                     ┌─────────────┴───────────────┐ 
                     │        ROTEADOR             │
                     │                             │
-                    │   Port Forward (1x):        │
-                    │   80  → 192.168.1.100:30080  │
-                    │   443 → 192.168.1.100:30443  │
+                    │  Port Forward (1x):         │
+                    │  80  → 192.168.1.100:30080  │
+                    │  443 → 192.168.1.100:30443  │
                     └─────────────┬───────────────┘
                                   │
                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                            TRAEFIK                                     │
-│                     (Ingress Controller)                               │
-│                                                                        │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                    HOST-BASED ROUTING                           │   │
-│  │                                                                 │   │
-│  │  O Traefik lê o HOSTNAME (Header "Host" / SNI) de cada          │   │
-│  │  requisição e roteia para o serviço correto:                    │   │
-│  │                                                                 │   │
-│  │    hisentient.com        →  landing-svc:80                      │   │
-│  │    api.hisentient.com    →  api-svc:8080                        │   │
-│  │    app.hisentient.com    →  webapp-svc:3000                     │   │
-│  │    grafana.hisentient.com→  grafana-svc:3000                    │   │
-│  │    cliente.com.br        →  cliente-app-svc:80                  │   │
-│  │                                                                 │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                                                        │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                    TLS TERMINATION                              │   │
-│  │                                                                 │   │
-│  │  • Traefik recebe conexão HTTPS                                 │   │
-│  │  • Descriptografa usando certificado do domínio                 │   │
-│  │  • Encaminha HTTP para o serviço interno                        │   │
-│  │  • Certificados gerenciados pelo cert-manager (Let's Encrypt)   │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-└────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                              TRAEFIK                                  │
+│                       (Ingress Controller)                            │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐  │
+│  │                     HOST-BASED ROUTING                          │  │
+│  │                                                                 │  │
+│  │  O Traefik lê o HOSTNAME (Header "Host" / SNI) de cada          │  │
+│  │  requisição e roteia para o serviço correto:                    │  │
+│  │                                                                 │  │
+│  │    hisentient.com        →  landing-svc:80                      │  │
+│  │    api.hisentient.com    →  api-svc:8080                        │  │
+│  │    app.hisentient.com    →  webapp-svc:3000                     │  │
+│  │    grafana.hisentient.com→  grafana-svc:3000                    │  │
+│  │    cliente.com.br        →  cliente-app-svc:80                  │  │
+│  │                                                                 │  │
+│  └─────────────────────────────────────────────────────────────────┘  │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐  │
+│  │                    TLS TERMINATION                              │  │
+│  │                                                                 │  │
+│  │  • Traefik recebe conexão HTTPS                                 │  │
+│  │  • Descriptografa usando certificado do domínio                 │  │
+│  │  • Encaminha HTTP para o serviço interno                        │  │
+│  │  • Certificados gerenciados pelo cert-manager (Let's Encrypt)   │  │
+│  └─────────────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────────────────────┘
                                   │
               ┌───────────────────┼───────────────────┐
               │                   │                   │

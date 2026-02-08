@@ -1,0 +1,96 @@
+# Realtime - WebSocket Server for real-time subscriptions
+# Escala horizontalmente (2-3 réplicas recomendado)
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: supabase-realtime
+  namespace: supabase
+  labels:
+    app: supabase-realtime
+spec:
+  type: ClusterIP
+  ports:
+  - port: 4000
+    targetPort: 4000
+    protocol: TCP
+  selector:
+    app: supabase-realtime
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supabase-realtime
+  namespace: supabase
+  labels:
+    app: supabase-realtime
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: supabase-realtime
+  template:
+    metadata:
+      labels:
+        app: supabase-realtime
+    spec:
+      containers:
+      - name: realtime
+        image: supabase/realtime:v2.25.50
+        ports:
+        - containerPort: 4000
+          name: http
+        env:
+        - name: DB_HOST
+          value: "postgres.supabase.svc"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          value: "postgres"
+        - name: DB_USER
+          value: "postgres"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: supabase-postgres
+              key: password
+        - name: DB_SSL
+          value: "false"
+        - name: PORT
+          value: "4000"
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: supabase-jwt
+              key: secret
+        - name: REPLICATION_MODE
+          value: "STREAM"
+        - name: REPLICATION_POLL_INTERVAL
+          value: "300"
+        - name: SECURE_CHANNELS
+          value: "true"
+        - name: SLOT_NAME
+          value: "supabase_realtime"
+        - name: TEMPORARY_SLOT
+          value: "true"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 4000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 4000
+          initialDelaySeconds: 10
+          periodSeconds: 5
