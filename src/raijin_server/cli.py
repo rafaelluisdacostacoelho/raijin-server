@@ -607,6 +607,11 @@ def sanitize(ctx: typer.Context) -> None:
     _run_module(ctx, "sanitize")
 
 
+@app.command()
+def supabase(ctx: typer.Context) -> None:
+    _run_module(ctx, "supabase")
+
+
 # ============================================================================
 # Subcomandos Cert-Manager
 # ============================================================================

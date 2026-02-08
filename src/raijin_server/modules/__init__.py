@@ -30,10 +30,11 @@ __all__ = [
     "cert_manager",
     "secrets",
     "full_install",
+    "supabase",
 ]
 
 from raijin_server.modules import argo, calico, essentials, firewall, grafana, harbor, hardening, istio
 from raijin_server.modules import kong, kubernetes, landing, loki, minio, network, network_config
 from raijin_server.modules import prometheus, traefik, velero, secrets, cert_manager
 from raijin_server.modules import bootstrap, full_install, sanitize, ssh_hardening, ssh_manager
-from raijin_server.modules import vpn, vpn_client, vpn_manager, internal_dns
+from raijin_server.modules import vpn, vpn_client, vpn_manager, internal_dns, supabase

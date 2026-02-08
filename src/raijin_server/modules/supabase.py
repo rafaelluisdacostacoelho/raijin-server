@@ -80,15 +80,22 @@ def _check_prerequisites(ctx: ExecutionContext, namespace: str) -> bool:
         typer.secho("  ✗ Nenhuma StorageClass encontrada. Instale local-path-provisioner primeiro.", fg=typer.colors.RED)
         return False
     
-    # Verificar se MinIO está disponível
+    # Verificar se MinIO está disponível (pode ser Deployment ou StatefulSet)
     result = run_cmd(
-        ["kubectl", "get", "deployment", "-n", "minio", "minio"],
+        ["kubectl", "get", "statefulset", "-n", "minio", "minio"],
         ctx,
         check=False,
     )
     if result.returncode != 0:
-        typer.secho("  ✗ MinIO nao encontrado. Instale MinIO primeiro (raijin-server install minio).", fg=typer.colors.RED)
-        return False
+        # Tentar como Deployment (instalação alternativa)
+        result = run_cmd(
+            ["kubectl", "get", "deployment", "-n", "minio", "minio"],
+            ctx,
+            check=False,
+        )
+        if result.returncode != 0:
+            typer.secho("  ✗ MinIO nao encontrado. Instale MinIO primeiro (raijin-server install minio).", fg=typer.colors.RED)
+            return False
     typer.secho("  ✓ MinIO disponivel.", fg=typer.colors.GREEN)
     
     return True
@@ -1197,3 +1204,8 @@ def uninstall(ctx: ExecutionContext) -> None:
         raise typer.Exit(1)
     
     typer.secho("\n✓ Supabase desinstalado.", fg=typer.colors.GREEN)
+
+
+def run(ctx: ExecutionContext) -> None:
+    """Funcao run padrao - delega para install."""
+    install(ctx)
