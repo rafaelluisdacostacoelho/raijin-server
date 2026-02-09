@@ -1,0 +1,38 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "monorepo-app", "monorepo-app", "{CC083986-E259-6E8F-D562-18CF51ED4BCC}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "backends", "backends", "{A41812BE-097F-DFBA-6F82-0C2D373E9325}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "api-dotnet", "api-dotnet", "{C7B34FF9-99FE-E128-C7B7-74E4994BF7C3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ApiDotnet", "examples\monorepo-app\backends\api-dotnet\ApiDotnet.csproj", "{4688B0CF-AC01-93C2-25F7-747ADD4EB854}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4688B0CF-AC01-93C2-25F7-747ADD4EB854}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4688B0CF-AC01-93C2-25F7-747ADD4EB854}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4688B0CF-AC01-93C2-25F7-747ADD4EB854}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4688B0CF-AC01-93C2-25F7-747ADD4EB854}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{CC083986-E259-6E8F-D562-18CF51ED4BCC} = {B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}
+		{A41812BE-097F-DFBA-6F82-0C2D373E9325} = {CC083986-E259-6E8F-D562-18CF51ED4BCC}
+		{C7B34FF9-99FE-E128-C7B7-74E4994BF7C3} = {A41812BE-097F-DFBA-6F82-0C2D373E9325}
+		{4688B0CF-AC01-93C2-25F7-747ADD4EB854} = {C7B34FF9-99FE-E128-C7B7-74E4994BF7C3}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {C7B64677-9152-40E1-9C90-45C35DE8D763}
+	EndGlobalSection
+EndGlobal

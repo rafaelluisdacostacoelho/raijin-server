@@ -1072,10 +1072,10 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
     """Mostra status completo de seguranca do Supabase."""
     typer.secho("\n🔒 Status de Seguranca — Supabase", fg=typer.colors.CYAN, bold=True)
     typer.echo("=" * 60)
-    typer.echo("  Verificacoes: 15 itens")
+    typer.echo("  Verificacoes: 17 itens")
 
     # 1. CORS
-    typer.echo("\n[1/13] CORS")
+    typer.echo("\n[1/17] CORS")
     kong_yml = _get_kong_config(ctx, namespace)
     if kong_yml:
         origins = _extract_origins(kong_yml)
@@ -1091,7 +1091,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho("  ✗ Nao foi possivel ler Kong config.", fg=typer.colors.RED)
 
     # 2. RLS
-    typer.echo("\n[2/13] Row Level Security (RLS)")
+    typer.echo("\n[2/17] Row Level Security (RLS)")
     rls_result = run_cmd(
         ["kubectl", "exec", "postgres-0", "-n", namespace, "--",
          "psql", "-U", "postgres", "-t", "-c",
@@ -1110,7 +1110,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
             typer.echo(f"    {status_icon} storage.{l}")
 
     # 3. Kong Service Type
-    typer.echo("\n[3/13] Kong Service Type")
+    typer.echo("\n[3/17] Kong Service Type")
     svc_result = run_cmd(
         ["kubectl", "get", "svc", "supabase-kong", "-n", namespace,
          "-o", "jsonpath={.spec.type}"],
@@ -1123,14 +1123,14 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho(f"  ✗ Kong eh {svc_type} — deveria ser ClusterIP!", fg=typer.colors.RED)
 
     # 4. Rate Limiting
-    typer.echo("\n[4/13] Rate Limiting")
+    typer.echo("\n[4/17] Rate Limiting")
     if kong_yml and "rate-limiting" in kong_yml:
         typer.secho("  ✓ Rate limiting configurado.", fg=typer.colors.GREEN)
     else:
         typer.secho("  ✗ Rate limiting NAO configurado!", fg=typer.colors.RED)
 
     # 5. MinIO Service Type
-    typer.echo("\n[5/13] MinIO Service Type")
+    typer.echo("\n[5/17] MinIO Service Type")
     minio_result = run_cmd(
         ["kubectl", "get", "svc", "minio", "-n", "minio",
          "-o", "jsonpath={.spec.type}"],
@@ -1143,7 +1143,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho(f"  ⚠ MinIO eh {minio_type} — considere ClusterIP.", fg=typer.colors.YELLOW)
 
     # 6. Security Headers
-    typer.echo("\n[6/13] Security Headers (Traefik)")
+    typer.echo("\n[6/17] Security Headers (Traefik)")
     headers_result = run_cmd(
         ["kubectl", "get", "middleware", "supabase-security-headers", "-n", namespace],
         ctx, check=False,
@@ -1154,7 +1154,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho("  ✗ Middleware de security headers NAO encontrado.", fg=typer.colors.RED)
 
     # 7. GoTrue Hardening
-    typer.echo("\n[7/13] GoTrue Hardening")
+    typer.echo("\n[7/17] GoTrue Hardening")
     gotrue_result = run_cmd(
         ["kubectl", "get", "deployment", "supabase-gotrue", "-n", namespace,
          "-o", "jsonpath={.spec.template.spec.containers[0].env[*].name}"],
@@ -1167,7 +1167,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho("  ✗ GoTrue sem rate limit headers.", fg=typer.colors.RED)
 
     # 8. Network Policies
-    typer.echo("\n[8/13] Network Policies")
+    typer.echo("\n[8/17] Network Policies")
     np_result = run_cmd(
         ["kubectl", "get", "networkpolicies", "-n", namespace, "-o", "name"],
         ctx, check=False,
@@ -1175,17 +1175,18 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
     np_lines = [l.strip() for l in (np_result.stdout or "").strip().splitlines() if l.strip()]
     expected_policies = {
         "default-deny-ingress", "kong-allow-ingress", "services-allow-kong",
-        "postgres-allow-supabase", "supabase-egress", "studio-allow-ingress",
-        "pgmeta-allow-studio",
+        "supabase-services-allow-kong", "postgres-allow-supabase",
+        "supabase-egress", "supabase-allow-dns",
+        "studio-allow-ingress", "pgmeta-allow-studio",
     }
     existing_names = {l.replace("networkpolicy.networking.k8s.io/", "") for l in np_lines}
     missing = expected_policies - existing_names
-    if len(np_lines) >= 7 and not missing:
+    if len(np_lines) >= 9 and not missing:
         typer.secho(f"  ✓ {len(np_lines)} Network Policies aplicadas.", fg=typer.colors.GREEN)
         for np in np_lines:
             typer.echo(f"    - {np}")
     elif np_lines:
-        typer.secho(f"  ⚠ {len(np_lines)} Network Policies (esperado: 7+).", fg=typer.colors.YELLOW)
+        typer.secho(f"  ⚠ {len(np_lines)} Network Policies (esperado: 9+).", fg=typer.colors.YELLOW)
         if missing:
             typer.secho(f"    Faltando: {', '.join(sorted(missing))}", fg=typer.colors.YELLOW)
         for np in np_lines:
@@ -1194,7 +1195,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho("  ✗ ZERO Network Policies!", fg=typer.colors.RED)
 
     # 9. Key-Auth (Autenticacao por API Key)
-    typer.echo("\n[9/13] Key-Auth (API Key)")
+    typer.echo("\n[9/17] Key-Auth (API Key)")
     if kong_yml and "key-auth" in kong_yml and "consumers:" in kong_yml:
         # Contar quantos servicos tem key-auth
         key_auth_count = kong_yml.count("name: key-auth")
@@ -1205,7 +1206,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho("  ✗ Key-auth NAO configurado — rotas desprotegidas!", fg=typer.colors.RED, bold=True)
 
     # 10. HTTP → HTTPS Redirect
-    typer.echo("\n[10/13] HTTP → HTTPS Redirect")
+    typer.echo("\n[10/17] HTTP → HTTPS Redirect")
     redirect_mw = run_cmd(
         ["kubectl", "get", "middleware", "redirect-https", "-n", namespace],
         ctx, check=False,
@@ -1222,14 +1223,14 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho("  ✗ Redirect HTTP → HTTPS NAO configurado.", fg=typer.colors.RED)
 
     # 11. Health Endpoint (/)
-    typer.echo("\n[11/13] Health Endpoint (/)")
+    typer.echo("\n[11/17] Health Endpoint (/)")
     if kong_yml and "request-termination" in kong_yml:
         typer.secho("  ✓ Health endpoint (/) configurado com request-termination.", fg=typer.colors.GREEN)
     else:
         typer.secho("  ✗ Health endpoint (/) NAO configurado — / retorna 404.", fg=typer.colors.RED)
 
     # 12. Supabase Studio
-    typer.echo("\n[12/15] Supabase Studio")
+    typer.echo("\n[12/17] Supabase Studio")
     studio_pod = run_cmd(
         ["kubectl", "get", "pods", "-n", namespace, "-l", "app=supabase-studio",
          "-o", "jsonpath={.items[0].status.phase}"],
@@ -1266,7 +1267,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho("  ✗ Studio NAO encontrado.", fg=typer.colors.RED)
 
     # 13. pg-meta (dependencia do Studio)
-    typer.echo("\n[13/15] pg-meta")
+    typer.echo("\n[13/17] pg-meta")
     pgmeta_pod = run_cmd(
         ["kubectl", "get", "pods", "-n", namespace, "-l", "app=supabase-pg-meta",
          "-o", "jsonpath={.items[0].status.phase}"],
@@ -1294,7 +1295,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho("  ✗ pg-meta NAO encontrado.", fg=typer.colors.RED)
 
     # 14. Role supabase_admin no PostgreSQL
-    typer.echo("\n[14/15] Role supabase_admin")
+    typer.echo("\n[14/17] Role supabase_admin")
     role_result = run_cmd(
         ["kubectl", "exec", "postgres-0", "-n", namespace, "--",
          "psql", "-U", "postgres", "-t", "-c",
@@ -1311,7 +1312,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.echo("    Execute: database/init-roles.sql para criar.")
 
     # 15. Studio ↔ pg-meta conectividade
-    typer.echo("\n[15/15] Studio ↔ pg-meta")
+    typer.echo("\n[15/17] Studio ↔ pg-meta")
     pgmeta_err = run_cmd(
         ["kubectl", "logs", "-n", namespace, "-l", "app=supabase-pg-meta",
          "--since=60s", "--tail=50"],
@@ -1330,6 +1331,52 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
             typer.secho("  ✓ Studio ↔ pg-meta sem erros.", fg=typer.colors.GREEN)
     else:
         typer.secho("  ✓ Studio ↔ pg-meta sem erros.", fg=typer.colors.GREEN)
+
+    # 16. Edge Functions
+    typer.echo("\n[16/17] Edge Functions")
+    func_pod = run_cmd(
+        ["kubectl", "get", "pods", "-n", namespace, "-l", "app=supabase-functions",
+         "-o", "jsonpath={.items[0].status.phase}"],
+        ctx, check=False,
+    )
+    func_phase = (func_pod.stdout or "").strip()
+    if func_phase == "Running":
+        typer.secho("  ✓ Edge Functions pod rodando.", fg=typer.colors.GREEN)
+        # Check service targetPort
+        func_tp = run_cmd(
+            ["kubectl", "get", "svc", "supabase-functions", "-n", namespace,
+             "-o", "jsonpath={.spec.ports[0].targetPort}"],
+            ctx, check=False,
+        )
+        tp_val = (func_tp.stdout or "").strip()
+        if tp_val == "9000":
+            typer.secho("  ✓ Service targetPort=9000 (correto).", fg=typer.colors.GREEN)
+        else:
+            typer.secho(f"  ✗ Service targetPort={tp_val} — esperado: 9000!", fg=typer.colors.RED)
+        # Check Kong route
+        if kong_yml and "/functions/v1/" in kong_yml:
+            typer.secho("  ✓ Kong route /functions/v1/ configurada.", fg=typer.colors.GREEN)
+        else:
+            typer.secho("  ✗ Kong route /functions/v1/ NAO encontrada!", fg=typer.colors.RED)
+    elif func_phase:
+        typer.secho(f"  ⚠ Edge Functions em estado: {func_phase}.", fg=typer.colors.YELLOW)
+    else:
+        typer.secho("  ✗ Edge Functions NAO encontrado.", fg=typer.colors.RED)
+
+    # 17. pg_stat_statements
+    typer.echo("\n[17/17] pg_stat_statements")
+    pss_result = run_cmd(
+        ["kubectl", "exec", "postgres-0", "-n", namespace, "--",
+         "psql", "-U", "postgres", "-t", "-c",
+         "SELECT 1 FROM pg_extension WHERE extname='pg_stat_statements';"],
+        ctx, check=False,
+    )
+    pss_exists = (pss_result.stdout or "").strip()
+    if pss_exists == "1":
+        typer.secho("  ✓ pg_stat_statements instalado.", fg=typer.colors.GREEN)
+    else:
+        typer.secho("  ✗ pg_stat_statements NAO instalado — Studio performance limitado.", fg=typer.colors.RED)
+        typer.echo("    Execute: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;")
 
     # Apps registrados
     typer.echo("\n[+] Aplicacoes Registradas")
