@@ -367,8 +367,268 @@ def _get_timestamp() -> str:
 
 
 # ---------------------------------------------------------------------------
+# ArgoCD Awareness
+# ---------------------------------------------------------------------------
+
+def _check_argocd_manages_kong(ctx: ExecutionContext, namespace: str = "supabase") -> bool:
+    """Verifica se ArgoCD gerencia recursos do Kong (selfHeal reverteria mudancas manuais)."""
+    result = run_cmd(
+        ["kubectl", "get", "application", "-n", "argocd", "-o",
+         "jsonpath={.items[*].metadata.name}"],
+        ctx, check=False,
+    )
+    if result.returncode != 0:
+        return False
+    apps = (result.stdout or "").strip().split()
+    # Verificar se algum app do ArgoCD aponta para services/
+    for app_name in apps:
+        res = run_cmd(
+            ["kubectl", "get", "application", app_name, "-n", "argocd", "-o",
+             "jsonpath={.spec.source.path}"],
+            ctx, check=False,
+        )
+        path = (res.stdout or "").strip()
+        if path and ("services" in path or "service" in path):
+            return True
+    return False
+
+
+def _warn_argocd(ctx: ExecutionContext, namespace: str = "supabase") -> None:
+    """Emite aviso se ArgoCD pode reverter mudancas manuais no Kong."""
+    if _check_argocd_manages_kong(ctx, namespace):
+        typer.secho(
+            "\n  ⚠  ArgoCD detectado gerenciando services/!\n"
+            "     Mudancas via kubectl serao REVERTIDAS pelo selfHeal.\n"
+            "     Para persistir, commite no repositorio Git do ArgoCD.\n",
+            fg=typer.colors.YELLOW, bold=True,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Security Hardening
 # ---------------------------------------------------------------------------
+
+def harden_key_auth(ctx: ExecutionContext, namespace: str = "supabase") -> bool:
+    """Configura key-auth no Kong com consumers anon e service_role."""
+    typer.secho("\n🔒 Configurando Key-Auth no Kong...", fg=typer.colors.CYAN, bold=True)
+
+    _warn_argocd(ctx, namespace)
+
+    kong_yml = _get_kong_config(ctx, namespace)
+    if not kong_yml:
+        typer.secho("  ✗ Nao foi possivel obter configuracao do Kong.", fg=typer.colors.RED)
+        return False
+
+    # Obter JWT keys do Secret
+    anon_key_result = run_cmd(
+        ["kubectl", "get", "secret", "supabase-secrets", "-n", namespace,
+         "-o", "jsonpath={.data.ANON_KEY}"],
+        ctx, check=False,
+    )
+    service_key_result = run_cmd(
+        ["kubectl", "get", "secret", "supabase-secrets", "-n", namespace,
+         "-o", "jsonpath={.data.SERVICE_ROLE_KEY}"],
+        ctx, check=False,
+    )
+
+    # Decodificar base64
+    import base64
+    anon_key = ""
+    service_key = ""
+    try:
+        anon_raw = (anon_key_result.stdout or "").strip()
+        service_raw = (service_key_result.stdout or "").strip()
+        if anon_raw:
+            anon_key = base64.b64decode(anon_raw).decode()
+        if service_raw:
+            service_key = base64.b64decode(service_raw).decode()
+    except Exception:
+        pass
+
+    if not anon_key or not service_key:
+        typer.secho(
+            "  ✗ Nao foi possivel obter ANON_KEY/SERVICE_ROLE_KEY do secret 'supabase-secrets'.",
+            fg=typer.colors.RED,
+        )
+        typer.echo("    Verifique se o secret existe: kubectl get secret supabase-secrets -n supabase")
+        return False
+
+    # Verificar se consumers ja existem
+    if "consumers:" in kong_yml and "keyauth_credentials:" in kong_yml:
+        typer.secho("  ✓ Key-auth consumers ja configurados.", fg=typer.colors.GREEN)
+    else:
+        # Adicionar consumers no inicio do kong.yml (apos _format_version)
+        consumers_block = textwrap.dedent(f"""\
+        consumers:
+          - username: anon
+            keyauth_credentials:
+              - key: "{anon_key}"
+          - username: service_role
+            keyauth_credentials:
+              - key: "{service_key}"
+        """)
+        # Inserir antes de "services:"
+        kong_yml = kong_yml.replace("services:", consumers_block + "services:", 1)
+        typer.echo("  + Consumers anon e service_role criados.")
+
+    # Adicionar key-auth plugin aos servicos (auth, rest, realtime, storage)
+    target_services = {"auth", "rest", "realtime", "storage"}
+    if "key-auth" in kong_yml:
+        typer.secho("  ✓ Plugin key-auth ja presente na configuracao.", fg=typer.colors.GREEN)
+    else:
+        # Adicionar key-auth como primeiro plugin apos cada servico-alvo
+        new_lines: list[str] = []
+        current_service = ""
+        key_auth_added = False
+        for line in kong_yml.splitlines():
+            new_lines.append(line)
+            stripped = line.strip()
+
+            # Detectar servico atual
+            if stripped.startswith("- name: ") and "name: cors" not in stripped and "name: rate-limiting" not in stripped and "name: key-auth" not in stripped and "name: request-termination" not in stripped:
+                svc_name = stripped.replace("- name: ", "").strip()
+                if svc_name in target_services or svc_name in {"health", "root-health", "auth-all", "rest-all", "realtime-all", "storage-all"}:
+                    current_service = svc_name
+
+            # Apos "plugins:" no contexto de um servico-alvo, adicionar key-auth
+            if stripped == "plugins:" and current_service in target_services:
+                indent = "          "
+                new_lines.append(f"{indent}- name: key-auth")
+                new_lines.append(f"{indent}  config:")
+                new_lines.append(f"{indent}    key_names:")
+                new_lines.append(f"{indent}      - apikey")
+                new_lines.append(f"{indent}    hide_credentials: false")
+                key_auth_added = True
+
+        if key_auth_added:
+            kong_yml = "\n".join(new_lines)
+            typer.echo("  + Plugin key-auth adicionado em: " + ", ".join(sorted(target_services)))
+
+    if _apply_kong_config(ctx, kong_yml, namespace):
+        typer.secho("  ✓ Key-auth configurado com sucesso.", fg=typer.colors.GREEN)
+        typer.echo("    Consumers: anon, service_role")
+        typer.echo("    Modo: apikey header/query param")
+        typer.echo("    Rotas protegidas: auth, rest, realtime, storage")
+        typer.echo("    Rota publica (sem auth): / (health)")
+        return True
+    return False
+
+
+def harden_http_redirect(ctx: ExecutionContext, namespace: str = "supabase") -> bool:
+    """Cria Middleware Traefik para redirect HTTP → HTTPS e Ingress de redirect."""
+    typer.secho("\n🔒 Configurando HTTP → HTTPS Redirect...", fg=typer.colors.CYAN, bold=True)
+
+    # 1. Middleware de redirect
+    redirect_manifest = textwrap.dedent(f"""\
+        apiVersion: traefik.io/v1alpha1
+        kind: Middleware
+        metadata:
+          name: redirect-https
+          namespace: {namespace}
+        spec:
+          redirectScheme:
+            scheme: https
+            permanent: true
+    """)
+
+    if not _apply_manifest(ctx, redirect_manifest, "Redirect HTTPS Middleware"):
+        return False
+
+    # 2. Obter dominio do Ingress existente
+    result = run_cmd(
+        ["kubectl", "get", "ingress", "-n", namespace, "-o",
+         "jsonpath={.items[0].spec.rules[0].host}"],
+        ctx, check=False,
+    )
+    domain = (result.stdout or "").strip()
+    if not domain:
+        typer.secho("  ⚠ Nenhum Ingress/dominio encontrado. Redirect middleware criado mas sem Ingress HTTP.", fg=typer.colors.YELLOW)
+        return True
+
+    # 3. Ingress HTTP que redireciona para HTTPS
+    redirect_ingress = textwrap.dedent(f"""\
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: supabase-redirect-http
+          namespace: {namespace}
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: web
+            traefik.ingress.kubernetes.io/router.middlewares: {namespace}-redirect-https@kubernetescrd
+        spec:
+          rules:
+          - host: {domain}
+            http:
+              paths:
+              - path: /
+                pathType: Prefix
+                backend:
+                  service:
+                    name: supabase-kong
+                    port:
+                      number: 8000
+    """)
+
+    if not _apply_manifest(ctx, redirect_ingress, "HTTP Redirect Ingress"):
+        return False
+
+    typer.secho(f"  ✓ HTTP → HTTPS redirect configurado para {domain}.", fg=typer.colors.GREEN)
+    return True
+
+
+def harden_health_endpoint(ctx: ExecutionContext, namespace: str = "supabase") -> bool:
+    """Adiciona health endpoint (/) no Kong com request-termination."""
+    typer.secho("\n🔒 Configurando Health Endpoint (/) no Kong...", fg=typer.colors.CYAN, bold=True)
+
+    _warn_argocd(ctx, namespace)
+
+    kong_yml = _get_kong_config(ctx, namespace)
+    if not kong_yml:
+        typer.secho("  ✗ Nao foi possivel obter configuracao do Kong.", fg=typer.colors.RED)
+        return False
+
+    # Verificar se health service ja existe
+    if "request-termination" in kong_yml:
+        typer.secho("  ✓ Health endpoint (/) ja configurado.", fg=typer.colors.GREEN)
+        return True
+
+    # Obter origins atuais para CORS do health
+    origins = _extract_origins(kong_yml)
+    origins_yaml = ""
+    for o in origins:
+        origins_yaml += f'\n              - "{o}"'
+
+    # Adicionar health service como primeiro servico
+    health_block = textwrap.dedent("""\
+        - name: health
+          url: http://localhost:8000
+          routes:
+            - name: root-health
+              paths:
+                - /
+              strip_path: false
+          plugins:
+            - name: request-termination
+              config:
+                status_code: 200
+                content_type: "application/json"
+                body: '{"status":"ok","service":"supabase","endpoints":{"/auth/v1/":"Authentication","/rest/v1/":"REST API","/storage/v1/":"Storage","/realtime/v1/":"Realtime"}}'
+            - name: cors
+              config:
+                origins:""")
+
+    for o in origins:
+        health_block += f'\n              - "{o}"'
+    health_block += "\n            credentials: true\n"
+
+    # Inserir apos "services:" (como primeiro servico)
+    kong_yml = kong_yml.replace("services:\n", "services:\n    " + health_block.replace("\n", "\n    ") + "\n", 1)
+
+    if _apply_kong_config(ctx, kong_yml, namespace):
+        typer.secho("  ✓ Health endpoint (/) configurado com status 200 JSON.", fg=typer.colors.GREEN)
+        return True
+    return False
+
 
 def harden_kong_clusterip(ctx: ExecutionContext, namespace: str = "supabase") -> bool:
     """Muda Kong de LoadBalancer para ClusterIP."""
@@ -685,6 +945,48 @@ def harden_network_policies(ctx: ExecutionContext, namespace: str = "supabase") 
               port: 80
     """)
 
+    # Policy 6: Studio aceita ingress externo (NodePort 30333)
+    studio_policy = textwrap.dedent(f"""\
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        metadata:
+          name: studio-allow-ingress
+          namespace: {namespace}
+        spec:
+          podSelector:
+            matchLabels:
+              app: supabase-studio
+          policyTypes:
+          - Ingress
+          ingress:
+          - ports:
+            - port: 3000
+              protocol: TCP
+    """)
+
+    # Policy 7: pg-meta aceita ingress de Studio
+    pgmeta_policy = textwrap.dedent(f"""\
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        metadata:
+          name: pgmeta-allow-studio
+          namespace: {namespace}
+        spec:
+          podSelector:
+            matchLabels:
+              app: supabase-pg-meta
+          policyTypes:
+          - Ingress
+          ingress:
+          - from:
+            - podSelector:
+                matchLabels:
+                  app: supabase-studio
+            ports:
+            - port: 8080
+              protocol: TCP
+    """)
+
     success = True
     for manifest, desc in [
         (default_deny, "Default deny ingress"),
@@ -692,12 +994,14 @@ def harden_network_policies(ctx: ExecutionContext, namespace: str = "supabase") 
         (services_policy, "Services ingress policy"),
         (postgres_policy, "PostgreSQL ingress policy"),
         (egress_policy, "Egress policy"),
+        (studio_policy, "Studio ingress policy"),
+        (pgmeta_policy, "pg-meta ingress policy (Studio)"),
     ]:
         if not _apply_manifest(ctx, manifest, desc):
             success = False
 
     if success:
-        typer.secho("  ✓ Network Policies aplicadas com sucesso.", fg=typer.colors.GREEN)
+        typer.secho("  ✓ Network Policies aplicadas com sucesso (7 policies).", fg=typer.colors.GREEN)
     return success
 
 
@@ -768,9 +1072,10 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
     """Mostra status completo de seguranca do Supabase."""
     typer.secho("\n🔒 Status de Seguranca — Supabase", fg=typer.colors.CYAN, bold=True)
     typer.echo("=" * 60)
+    typer.echo("  Verificacoes: 15 itens")
 
     # 1. CORS
-    typer.echo("\n[1/8] CORS")
+    typer.echo("\n[1/13] CORS")
     kong_yml = _get_kong_config(ctx, namespace)
     if kong_yml:
         origins = _extract_origins(kong_yml)
@@ -786,7 +1091,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho("  ✗ Nao foi possivel ler Kong config.", fg=typer.colors.RED)
 
     # 2. RLS
-    typer.echo("\n[2/8] Row Level Security (RLS)")
+    typer.echo("\n[2/13] Row Level Security (RLS)")
     rls_result = run_cmd(
         ["kubectl", "exec", "postgres-0", "-n", namespace, "--",
          "psql", "-U", "postgres", "-t", "-c",
@@ -805,7 +1110,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
             typer.echo(f"    {status_icon} storage.{l}")
 
     # 3. Kong Service Type
-    typer.echo("\n[3/8] Kong Service Type")
+    typer.echo("\n[3/13] Kong Service Type")
     svc_result = run_cmd(
         ["kubectl", "get", "svc", "supabase-kong", "-n", namespace,
          "-o", "jsonpath={.spec.type}"],
@@ -818,14 +1123,14 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho(f"  ✗ Kong eh {svc_type} — deveria ser ClusterIP!", fg=typer.colors.RED)
 
     # 4. Rate Limiting
-    typer.echo("\n[4/8] Rate Limiting")
+    typer.echo("\n[4/13] Rate Limiting")
     if kong_yml and "rate-limiting" in kong_yml:
         typer.secho("  ✓ Rate limiting configurado.", fg=typer.colors.GREEN)
     else:
         typer.secho("  ✗ Rate limiting NAO configurado!", fg=typer.colors.RED)
 
     # 5. MinIO Service Type
-    typer.echo("\n[5/8] MinIO Service Type")
+    typer.echo("\n[5/13] MinIO Service Type")
     minio_result = run_cmd(
         ["kubectl", "get", "svc", "minio", "-n", "minio",
          "-o", "jsonpath={.spec.type}"],
@@ -838,7 +1143,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho(f"  ⚠ MinIO eh {minio_type} — considere ClusterIP.", fg=typer.colors.YELLOW)
 
     # 6. Security Headers
-    typer.echo("\n[6/8] Security Headers (Traefik)")
+    typer.echo("\n[6/13] Security Headers (Traefik)")
     headers_result = run_cmd(
         ["kubectl", "get", "middleware", "supabase-security-headers", "-n", namespace],
         ctx, check=False,
@@ -849,7 +1154,7 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho("  ✗ Middleware de security headers NAO encontrado.", fg=typer.colors.RED)
 
     # 7. GoTrue Hardening
-    typer.echo("\n[7/8] GoTrue Hardening")
+    typer.echo("\n[7/13] GoTrue Hardening")
     gotrue_result = run_cmd(
         ["kubectl", "get", "deployment", "supabase-gotrue", "-n", namespace,
          "-o", "jsonpath={.spec.template.spec.containers[0].env[*].name}"],
@@ -862,20 +1167,169 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         typer.secho("  ✗ GoTrue sem rate limit headers.", fg=typer.colors.RED)
 
     # 8. Network Policies
-    typer.echo("\n[8/8] Network Policies")
+    typer.echo("\n[8/13] Network Policies")
     np_result = run_cmd(
         ["kubectl", "get", "networkpolicies", "-n", namespace, "-o", "name"],
         ctx, check=False,
     )
     np_lines = [l.strip() for l in (np_result.stdout or "").strip().splitlines() if l.strip()]
-    if len(np_lines) >= 3:
+    expected_policies = {
+        "default-deny-ingress", "kong-allow-ingress", "services-allow-kong",
+        "postgres-allow-supabase", "supabase-egress", "studio-allow-ingress",
+        "pgmeta-allow-studio",
+    }
+    existing_names = {l.replace("networkpolicy.networking.k8s.io/", "") for l in np_lines}
+    missing = expected_policies - existing_names
+    if len(np_lines) >= 7 and not missing:
         typer.secho(f"  ✓ {len(np_lines)} Network Policies aplicadas.", fg=typer.colors.GREEN)
         for np in np_lines:
             typer.echo(f"    - {np}")
     elif np_lines:
-        typer.secho(f"  ⚠ Apenas {len(np_lines)} Network Policies (recomendado: 5+).", fg=typer.colors.YELLOW)
+        typer.secho(f"  ⚠ {len(np_lines)} Network Policies (esperado: 7+).", fg=typer.colors.YELLOW)
+        if missing:
+            typer.secho(f"    Faltando: {', '.join(sorted(missing))}", fg=typer.colors.YELLOW)
+        for np in np_lines:
+            typer.echo(f"    - {np}")
     else:
         typer.secho("  ✗ ZERO Network Policies!", fg=typer.colors.RED)
+
+    # 9. Key-Auth (Autenticacao por API Key)
+    typer.echo("\n[9/13] Key-Auth (API Key)")
+    if kong_yml and "key-auth" in kong_yml and "consumers:" in kong_yml:
+        # Contar quantos servicos tem key-auth
+        key_auth_count = kong_yml.count("name: key-auth")
+        typer.secho(f"  ✓ Key-auth ativo em {key_auth_count} servico(s) com consumers configurados.", fg=typer.colors.GREEN)
+    elif kong_yml and "key-auth" in kong_yml:
+        typer.secho("  ⚠ Key-auth presente mas sem consumers definidos.", fg=typer.colors.YELLOW)
+    else:
+        typer.secho("  ✗ Key-auth NAO configurado — rotas desprotegidas!", fg=typer.colors.RED, bold=True)
+
+    # 10. HTTP → HTTPS Redirect
+    typer.echo("\n[10/13] HTTP → HTTPS Redirect")
+    redirect_mw = run_cmd(
+        ["kubectl", "get", "middleware", "redirect-https", "-n", namespace],
+        ctx, check=False,
+    )
+    redirect_ing = run_cmd(
+        ["kubectl", "get", "ingress", "supabase-redirect-http", "-n", namespace],
+        ctx, check=False,
+    )
+    if redirect_mw.returncode == 0 and redirect_ing.returncode == 0:
+        typer.secho("  ✓ Redirect HTTP → HTTPS configurado (middleware + ingress).", fg=typer.colors.GREEN)
+    elif redirect_mw.returncode == 0:
+        typer.secho("  ⚠ Middleware redirect existe mas falta Ingress HTTP.", fg=typer.colors.YELLOW)
+    else:
+        typer.secho("  ✗ Redirect HTTP → HTTPS NAO configurado.", fg=typer.colors.RED)
+
+    # 11. Health Endpoint (/)
+    typer.echo("\n[11/13] Health Endpoint (/)")
+    if kong_yml and "request-termination" in kong_yml:
+        typer.secho("  ✓ Health endpoint (/) configurado com request-termination.", fg=typer.colors.GREEN)
+    else:
+        typer.secho("  ✗ Health endpoint (/) NAO configurado — / retorna 404.", fg=typer.colors.RED)
+
+    # 12. Supabase Studio
+    typer.echo("\n[12/15] Supabase Studio")
+    studio_pod = run_cmd(
+        ["kubectl", "get", "pods", "-n", namespace, "-l", "app=supabase-studio",
+         "-o", "jsonpath={.items[0].status.phase}"],
+        ctx, check=False,
+    )
+    studio_svc = run_cmd(
+        ["kubectl", "get", "svc", "supabase-studio", "-n", namespace,
+         "-o", "jsonpath={.spec.type}:{.spec.ports[0].nodePort}"],
+        ctx, check=False,
+    )
+    studio_phase = (studio_pod.stdout or "").strip()
+    studio_svc_info = (studio_svc.stdout or "").strip()
+    if studio_phase == "Running":
+        typer.secho(f"  ✓ Studio rodando ({studio_svc_info}).", fg=typer.colors.GREEN)
+        # Verify critical env vars
+        studio_env = run_cmd(
+            ["kubectl", "get", "deployment", "supabase-studio", "-n", namespace,
+             "-o", "jsonpath={.spec.template.spec.containers[0].env[*].name}"],
+            ctx, check=False,
+        )
+        env_names = (studio_env.stdout or "").strip().split()
+        required_studio_envs = {
+            "POSTGRES_HOST", "POSTGRES_PASSWORD", "AUTH_JWT_SECRET",
+            "SNIPPETS_MANAGEMENT_FOLDER", "STUDIO_PG_META_URL",
+        }
+        missing_envs = required_studio_envs - set(env_names)
+        if not missing_envs:
+            typer.secho("  ✓ Env vars criticas do Studio presentes.", fg=typer.colors.GREEN)
+        else:
+            typer.secho(f"  ✗ Env vars faltando: {', '.join(sorted(missing_envs))}", fg=typer.colors.RED)
+    elif studio_phase:
+        typer.secho(f"  ⚠ Studio em estado: {studio_phase}.", fg=typer.colors.YELLOW)
+    else:
+        typer.secho("  ✗ Studio NAO encontrado.", fg=typer.colors.RED)
+
+    # 13. pg-meta (dependencia do Studio)
+    typer.echo("\n[13/15] pg-meta")
+    pgmeta_pod = run_cmd(
+        ["kubectl", "get", "pods", "-n", namespace, "-l", "app=supabase-pg-meta",
+         "-o", "jsonpath={.items[0].status.phase}"],
+        ctx, check=False,
+    )
+    pgmeta_phase = (pgmeta_pod.stdout or "").strip()
+    if pgmeta_phase == "Running":
+        typer.secho("  ✓ pg-meta rodando.", fg=typer.colors.GREEN)
+        # Verify PG_META_DB_USER
+        pgmeta_user = run_cmd(
+            ["kubectl", "get", "deployment", "supabase-pg-meta", "-n", namespace,
+             "-o", "jsonpath={.spec.template.spec.containers[0].env[?(@.name=='PG_META_DB_USER')].value}"],
+            ctx, check=False,
+        )
+        db_user = (pgmeta_user.stdout or "").strip()
+        if db_user == "supabase_admin":
+            typer.secho(f"  ✓ PG_META_DB_USER={db_user} (correto).", fg=typer.colors.GREEN)
+        elif db_user:
+            typer.secho(f"  ⚠ PG_META_DB_USER={db_user} — esperado: supabase_admin.", fg=typer.colors.YELLOW)
+        else:
+            typer.secho("  ✗ PG_META_DB_USER nao definido.", fg=typer.colors.RED)
+    elif pgmeta_phase:
+        typer.secho(f"  ⚠ pg-meta em estado: {pgmeta_phase}.", fg=typer.colors.YELLOW)
+    else:
+        typer.secho("  ✗ pg-meta NAO encontrado.", fg=typer.colors.RED)
+
+    # 14. Role supabase_admin no PostgreSQL
+    typer.echo("\n[14/15] Role supabase_admin")
+    role_result = run_cmd(
+        ["kubectl", "exec", "postgres-0", "-n", namespace, "--",
+         "psql", "-U", "postgres", "-t", "-c",
+         "SELECT 1 FROM pg_roles WHERE rolname='supabase_admin' AND rolsuper;"],
+        ctx, check=False,
+    )
+    role_exists = (role_result.stdout or "").strip()
+    if role_exists == "1":
+        typer.secho("  ✓ Role supabase_admin existe com SUPERUSER.", fg=typer.colors.GREEN)
+    elif role_exists:
+        typer.secho("  ⚠ Role supabase_admin existe mas sem SUPERUSER.", fg=typer.colors.YELLOW)
+    else:
+        typer.secho("  ✗ Role supabase_admin NAO encontrado!", fg=typer.colors.RED)
+        typer.echo("    Execute: database/init-roles.sql para criar.")
+
+    # 15. Studio ↔ pg-meta conectividade
+    typer.echo("\n[15/15] Studio ↔ pg-meta")
+    pgmeta_err = run_cmd(
+        ["kubectl", "logs", "-n", namespace, "-l", "app=supabase-pg-meta",
+         "--since=60s", "--tail=50"],
+        ctx, check=False,
+    )
+    pgmeta_logs = (pgmeta_err.stdout or "").strip()
+    if "ENOTFOUND" in pgmeta_logs:
+        typer.secho("  ✗ pg-meta com erros DNS (ENOTFOUND) — POSTGRES_HOST incorreto!", fg=typer.colors.RED)
+    elif "password authentication failed" in pgmeta_logs:
+        typer.secho("  ✗ pg-meta com erros de autenticacao — verificar role/senha!", fg=typer.colors.RED)
+    elif "error" in pgmeta_logs.lower() and "level" in pgmeta_logs:
+        err_count = pgmeta_logs.count('"level":"error"')
+        if err_count > 0:
+            typer.secho(f"  ⚠ pg-meta com {err_count} erro(s) no ultimo minuto.", fg=typer.colors.YELLOW)
+        else:
+            typer.secho("  ✓ Studio ↔ pg-meta sem erros.", fg=typer.colors.GREEN)
+    else:
+        typer.secho("  ✓ Studio ↔ pg-meta sem erros.", fg=typer.colors.GREEN)
 
     # Apps registrados
     typer.echo("\n[+] Aplicacoes Registradas")
@@ -885,6 +1339,14 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
             typer.echo(f"    - {name}: {info.get('domain', '?')}")
     else:
         typer.secho("  (nenhuma aplicacao registrada)", fg=typer.colors.YELLOW)
+
+    # ArgoCD
+    typer.echo("\n[+] ArgoCD")
+    if _check_argocd_manages_kong(ctx, namespace):
+        typer.secho("  ⚠ ArgoCD gerencia services/ — mudancas manuais serao revertidas.", fg=typer.colors.YELLOW)
+        typer.echo("    Use Git push para persistir alteracoes no Kong.")
+    else:
+        typer.echo("  ArgoCD nao detectado ou nao gerencia services/.")
 
     typer.echo("\n" + "=" * 60)
 
@@ -900,8 +1362,11 @@ def harden_all(ctx: ExecutionContext, namespace: str = "supabase") -> None:
     steps = [
         ("RLS (Row Level Security)", lambda: harden_rls(ctx, namespace)),
         ("Kong → ClusterIP", lambda: harden_kong_clusterip(ctx, namespace)),
+        ("Key-Auth (API Key)", lambda: harden_key_auth(ctx, namespace)),
         ("Rate Limiting", lambda: harden_rate_limiting(ctx, namespace)),
+        ("Health Endpoint (/)", lambda: harden_health_endpoint(ctx, namespace)),
         ("Security Headers", lambda: harden_security_headers(ctx, namespace)),
+        ("HTTP → HTTPS Redirect", lambda: harden_http_redirect(ctx, namespace)),
         ("GoTrue Hardening", lambda: harden_gotrue(ctx, namespace)),
         ("Network Policies", lambda: harden_network_policies(ctx, namespace)),
     ]

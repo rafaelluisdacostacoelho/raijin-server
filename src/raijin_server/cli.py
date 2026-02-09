@@ -864,9 +864,30 @@ def supa_sec_app_list(ctx: typer.Context) -> None:
 
 @supa_sec_app.command(name="harden")
 def supa_sec_harden(ctx: typer.Context) -> None:
-    """Aplica todas as medidas de seguranca (RLS, rate-limit, headers, network policies)."""
+    """Aplica todas as medidas de seguranca (RLS, key-auth, rate-limit, headers, redirect, network policies)."""
     exec_ctx = ctx.obj or ExecutionContext()
     supabase_security.harden_all(exec_ctx)
+
+
+@supa_sec_app.command(name="harden-key-auth")
+def supa_sec_harden_key_auth(ctx: typer.Context) -> None:
+    """Configura key-auth no Kong com consumers anon e service_role."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.harden_key_auth(exec_ctx)
+
+
+@supa_sec_app.command(name="harden-http-redirect")
+def supa_sec_harden_http_redirect(ctx: typer.Context) -> None:
+    """Configura redirect HTTP → HTTPS via Traefik Middleware."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.harden_http_redirect(exec_ctx)
+
+
+@supa_sec_app.command(name="harden-health-endpoint")
+def supa_sec_harden_health_endpoint(ctx: typer.Context) -> None:
+    """Adiciona health endpoint (/) no Kong com request-termination."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.harden_health_endpoint(exec_ctx)
 
 
 # ============================================================================
