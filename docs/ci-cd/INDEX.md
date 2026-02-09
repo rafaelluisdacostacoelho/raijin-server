@@ -59,6 +59,17 @@ Agora você quer **publicar novos aplicativos** (websites, APIs, SPAs, etc.) nes
 - Troubleshooting DNS/TLS
 - Exemplos práticos (Supabase, Harbor, Argo CD)
 
+### 🤖 2. GITOPS_AUTOMATION.md 🚀 AUTOMAÇÃO CI/CD
+**Setup automático de pipelines GitOps para repositórios**
+
+**Contém**:
+- Detecção automática de tipo de aplicação
+- Geração de Dockerfile, Kubernetes manifests, GitHub Actions
+- Configuração ArgoCD Application
+- Deploy automático ponta a ponta
+- Suporte: Python, Node.js, Go, Static, Next.js, React
+- Exemplo com repositório Supabase customizado
+
 **Leia primeiro**: ✅ Sim, para entender o processo completo
 
 📄 **[Abrir WORKFLOW.md](WORKFLOW.md)**

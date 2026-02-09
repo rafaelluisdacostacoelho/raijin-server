@@ -1,6 +1,6 @@
 # Supabase — Open Source Firebase Alternative
 
-> **Navegação**: [← Voltar ao Índice](README.md) | [← Anterior: Argo](argo.md)
+> **Navegação**: [← Voltar ao Índice](README.md) | [← Anterior: Argo](argo.md) | [→ Segurança](supabase-security.md)
 
 ---
 

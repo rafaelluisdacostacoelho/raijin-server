@@ -43,11 +43,13 @@ from raijin_server.modules import (
     ssh_hardening,
     ssh_manager,
     supabase,
+    gitops,
     traefik,
     velero,
     vpn,
     vpn_client,
     vpn_manager,
+    supabase_security,
 )
 from raijin_server.utils import ExecutionContext, logger, active_log_file, available_log_files, page_text, ensure_tool
 from raijin_server.validators import validate_system_requirements, check_module_dependencies, MODULE_DEPENDENCIES
@@ -108,6 +110,7 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "argo": argo.run,
     "velero": velero.run,
     "supabase": supabase.install,
+    "gitops": gitops.run,
     "landing": landing.run,
 }
 
@@ -144,6 +147,7 @@ MODULE_DESCRIPTIONS: Dict[str, str] = {
     "argo": "Argo CD + Argo Workflows (GitOps CI/CD 100% opensource)",
     "velero": "Backup/restore de clusters",
     "supabase": "Supabase (Open Source Firebase Alternative) com PostgreSQL, Auth, Realtime",
+    "gitops": "Configuracao automatica de CI/CD e GitOps para repositorios",
     "landing": "Landing page de teste para verificar acesso publico",
 }
 
@@ -612,6 +616,12 @@ def supabase(ctx: typer.Context) -> None:
     _run_module(ctx, "supabase")
 
 
+@app.command()
+def gitops(ctx: typer.Context) -> None:
+    """Configurar CI/CD e GitOps automatico para repositorios."""
+    _run_module(ctx, "gitops")
+
+
 # ============================================================================
 # Subcomandos Cert-Manager
 # ============================================================================
@@ -781,6 +791,82 @@ def ssh_ctl_schedule(
     """
     exec_ctx = ctx.obj or ExecutionContext()
     ssh_manager.schedule(exec_ctx, enable_schedule=enable, start_hour=start_hour, end_hour=end_hour)
+
+
+# ============================================================================
+# Subcomandos Supabase Security - CORS, Apps, Hardening
+# ============================================================================
+supa_sec_app = typer.Typer(help="Seguranca do Supabase: CORS, apps, hardening")
+app.add_typer(supa_sec_app, name="supabase-security")
+
+
+@supa_sec_app.command(name="status")
+def supa_sec_status(ctx: typer.Context) -> None:
+    """Mostra status completo de seguranca do Supabase."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.status(exec_ctx)
+
+
+@supa_sec_app.command(name="cors-list")
+def supa_sec_cors_list(ctx: typer.Context) -> None:
+    """Lista dominios CORS autorizados."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.cors_list(exec_ctx)
+
+
+@supa_sec_app.command(name="cors-add")
+def supa_sec_cors_add(
+    ctx: typer.Context,
+    domain: str = typer.Option(..., "--domain", "-d", help="Dominio a adicionar (ex: https://meu-app.lovable.app)"),
+) -> None:
+    """Adiciona dominio ao CORS do Supabase."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.cors_add(exec_ctx, domain)
+
+
+@supa_sec_app.command(name="cors-remove")
+def supa_sec_cors_remove(
+    ctx: typer.Context,
+    domain: str = typer.Option(..., "--domain", "-d", help="Dominio a remover"),
+) -> None:
+    """Remove dominio do CORS do Supabase."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.cors_remove(exec_ctx, domain)
+
+
+@supa_sec_app.command(name="app-add")
+def supa_sec_app_add(
+    ctx: typer.Context,
+    name: str = typer.Option(..., "--name", "-n", help="Nome da aplicacao (ex: meu-mvp)"),
+    domain: str = typer.Option(..., "--domain", "-d", help="Dominio CORS (ex: https://meu-app.com)"),
+) -> None:
+    """Registra nova aplicacao no Supabase e adiciona CORS."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.app_add(exec_ctx, name, domain)
+
+
+@supa_sec_app.command(name="app-remove")
+def supa_sec_app_remove(
+    ctx: typer.Context,
+    name: str = typer.Option(..., "--name", "-n", help="Nome da aplicacao a remover"),
+) -> None:
+    """Remove aplicacao registrada e seu CORS."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.app_remove(exec_ctx, name)
+
+
+@supa_sec_app.command(name="app-list")
+def supa_sec_app_list(ctx: typer.Context) -> None:
+    """Lista aplicacoes registradas no Supabase."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.app_list(exec_ctx)
+
+
+@supa_sec_app.command(name="harden")
+def supa_sec_harden(ctx: typer.Context) -> None:
+    """Aplica todas as medidas de seguranca (RLS, rate-limit, headers, network policies)."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.harden_all(exec_ctx)
 
 
 # ============================================================================
@@ -1014,6 +1100,7 @@ def _register_uninstall_handlers() -> None:
         "calico": lambda ctx: _generic_uninstall(ctx, "calico", "calico-system", ["calico"]),
         "secrets": lambda ctx: _uninstall_secrets(ctx),
         "supabase": supabase.uninstall,
+        "gitops": gitops.uninstall,
         "landing": landing.uninstall,
     }
     

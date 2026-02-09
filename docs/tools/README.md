@@ -93,6 +93,7 @@ Este guia cobre a instalação, configuração, operação e troubleshooting de 
 | Componente | Descrição | Tipo | Docs |
 |------------|-----------|------|------|
 | **[Supabase](supabase.md)** | Open Source Firebase Alternative (PostgreSQL + Auth + Realtime + Storage) | BaaS | ⭐⭐⭐ |
+| **[Supabase Security](supabase-security.md)** | Hardening: CORS, RLS, Rate Limiting, Network Policies | Segurança | ⭐⭐⭐ |
 
 ---
 
