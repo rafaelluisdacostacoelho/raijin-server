@@ -1368,15 +1368,36 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
     pss_result = run_cmd(
         ["kubectl", "exec", "postgres-0", "-n", namespace, "--",
          "psql", "-U", "postgres", "-t", "-c",
-         "SELECT 1 FROM pg_extension WHERE extname='pg_stat_statements';"],
+         "SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname='pg_stat_statements';"],
         ctx, check=False,
     )
-    pss_exists = (pss_result.stdout or "").strip()
-    if pss_exists == "1":
-        typer.secho("  ✓ pg_stat_statements instalado.", fg=typer.colors.GREEN)
+    pss_schema = (pss_result.stdout or "").strip()
+    if pss_schema == "extensions":
+        typer.secho("  ✓ pg_stat_statements instalado no schema 'extensions'.", fg=typer.colors.GREEN)
+    elif pss_schema == "public":
+        typer.secho("  ✗ pg_stat_statements no schema 'public' — RISCO DE SEGURANCA!", fg=typer.colors.RED)
+        typer.echo("    Execute: ALTER EXTENSION pg_stat_statements SET SCHEMA extensions;")
+        typer.echo("    E revogue: REVOKE SELECT ON extensions.pg_stat_statements FROM PUBLIC;")
+    elif pss_schema:
+        typer.secho(f"  ⚠ pg_stat_statements no schema '{pss_schema}' (esperado: extensions).", fg=typer.colors.YELLOW)
     else:
         typer.secho("  ✗ pg_stat_statements NAO instalado — Studio performance limitado.", fg=typer.colors.RED)
-        typer.echo("    Execute: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;")
+        typer.echo("    Execute: CREATE EXTENSION IF NOT EXISTS pg_stat_statements SCHEMA extensions;")
+
+    # Verificar grants — PUBLIC nao deve ter SELECT
+    if pss_schema:
+        grant_result = run_cmd(
+            ["kubectl", "exec", "postgres-0", "-n", namespace, "--",
+             "psql", "-U", "postgres", "-t", "-c",
+             "SELECT 1 FROM information_schema.role_table_grants WHERE table_name='pg_stat_statements' AND grantee='PUBLIC' AND privilege_type='SELECT';"],
+            ctx, check=False,
+        )
+        public_has_select = (grant_result.stdout or "").strip()
+        if public_has_select == "1":
+            typer.secho("  ✗ PUBLIC tem SELECT em pg_stat_statements — dados expostos via API!", fg=typer.colors.RED)
+            typer.echo("    Execute: REVOKE SELECT ON extensions.pg_stat_statements FROM PUBLIC;")
+        else:
+            typer.secho("  ✓ PUBLIC sem acesso a pg_stat_statements.", fg=typer.colors.GREEN)
 
     # 18. shared_preload_libraries
     typer.echo("\n[18/19] shared_preload_libraries")
