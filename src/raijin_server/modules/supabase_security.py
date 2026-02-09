@@ -1178,15 +1178,16 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
         "supabase-services-allow-kong", "postgres-allow-supabase",
         "supabase-egress", "supabase-allow-dns",
         "studio-allow-ingress", "pgmeta-allow-studio",
+        "services-allow-studio",
     }
     existing_names = {l.replace("networkpolicy.networking.k8s.io/", "") for l in np_lines}
     missing = expected_policies - existing_names
-    if len(np_lines) >= 9 and not missing:
+    if len(np_lines) >= 10 and not missing:
         typer.secho(f"  ✓ {len(np_lines)} Network Policies aplicadas.", fg=typer.colors.GREEN)
         for np in np_lines:
             typer.echo(f"    - {np}")
     elif np_lines:
-        typer.secho(f"  ⚠ {len(np_lines)} Network Policies (esperado: 9+).", fg=typer.colors.YELLOW)
+        typer.secho(f"  ⚠ {len(np_lines)} Network Policies (esperado: 10+).", fg=typer.colors.YELLOW)
         if missing:
             typer.secho(f"    Faltando: {', '.join(sorted(missing))}", fg=typer.colors.YELLOW)
         for np in np_lines:
