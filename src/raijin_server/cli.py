@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import subprocess
 
@@ -112,6 +112,7 @@ MODULES: Dict[str, Callable[[ExecutionContext], None]] = {
     "supabase": supabase.install,
     "gitops": gitops.run,
     "landing": landing.run,
+    "full_install": full_install.run,
 }
 
 # Rollbacks sao opcionais; por padrao apenas removem marcador de conclusao e avisam
@@ -345,7 +346,9 @@ def _rollback_module(
     typer.secho(f"Rollback finalizado (best-effort) para {name}\n", fg=typer.colors.GREEN)
 
 
-def _render_menu(dry_run: bool, live_status: bool = True) -> int:
+def _render_menu(dry_run: bool, live_status: bool = True) -> Tuple[int, List[str]]:
+    menu_modules = _get_available_modules()
+
     table = Table(
         title="Selecione um modulo para executar",
         header_style="bold white",
@@ -364,7 +367,7 @@ def _render_menu(dry_run: bool, live_status: bool = True) -> int:
     else:
         statuses = {}
     
-    for idx, name in enumerate(MODULES.keys(), start=1):
+    for idx, name in enumerate(menu_modules, start=1):
         desc = MODULE_DESCRIPTIONS.get(name, "")
         
         if live_status:
@@ -381,15 +384,15 @@ def _render_menu(dry_run: bool, live_status: bool = True) -> int:
         
         table.add_row(f"{idx}", status, name, desc)
 
-    exit_idx = len(MODULES) + 1
+    exit_idx = len(menu_modules) + 1
     table.add_row(
         f"{exit_idx}", "[red]↩[/red]", EXIT_OPTION, "Sair do menu",
     )
 
     mode_label = "[yellow]DRY-RUN[/yellow]" if dry_run else "[bold red]APLICAR[/bold red]"
-    console.print(Panel.fit(f"Modo atual: {mode_label}  |  t = alternar modo  |  {EXIT_OPTION} = sair", style="dim"))
+    console.print(Panel.fit(f"Modo atual: {mode_label}  |  t = alternar modo  |  full = instalação completa  |  {EXIT_OPTION} = sair", style="dim"))
     console.print(table)
-    return exit_idx
+    return exit_idx, menu_modules
 
 
 def _version_callback(value: bool) -> None:
@@ -412,7 +415,7 @@ def interactive_menu(ctx: typer.Context) -> None:
     )
 
     while True:
-        exit_idx = _render_menu(current_dry_run)
+        exit_idx, menu_modules = _render_menu(current_dry_run)
         choice = Prompt.ask("Escolha", default=EXIT_OPTION).strip().lower()
 
         if choice in {"q", EXIT_OPTION}:
@@ -426,8 +429,8 @@ def interactive_menu(ctx: typer.Context) -> None:
             idx = int(choice)
             if idx == exit_idx:
                 return
-            if 1 <= idx <= len(MODULES):
-                name = list(MODULES.keys())[idx - 1]
+            if 1 <= idx <= len(menu_modules):
+                name = menu_modules[idx - 1]
             else:
                 console.print("[red]Opcao invalida[/red]")
                 continue
@@ -834,6 +837,13 @@ def supa_sec_cors_remove(
     supabase_security.cors_remove(exec_ctx, domain)
 
 
+@supa_sec_app.command(name="cors-fix-headers")
+def supa_sec_cors_fix_headers(ctx: typer.Context) -> None:
+    """Atualiza headers CORS para compatibilidade com supabase-js v2.45+."""
+    exec_ctx = ctx.obj or ExecutionContext()
+    supabase_security.cors_fix_headers(exec_ctx)
+
+
 @supa_sec_app.command(name="app-add")
 def supa_sec_app_add(
     ctx: typer.Context,
@@ -1123,14 +1133,16 @@ def _register_uninstall_handlers() -> None:
         "supabase": supabase.uninstall,
         "gitops": gitops.uninstall,
         "landing": landing.uninstall,
+        "argo": argo.uninstall,
+        "harbor": lambda ctx: harbor._uninstall_harbor(ctx, "harbor"),
     }
     
     module_manager.UNINSTALL_HANDLERS.update(handlers)
 
 
 def _uninstall_secrets(ctx: ExecutionContext) -> None:
-    """Handler de uninstall para secrets (sealed-secrets + external-secrets)."""
-    secrets._uninstall_sealed_secrets(ctx, "sealed-secrets")
+    """Handler de uninstall para secrets (vault + external-secrets)."""
+    secrets._uninstall_vault(ctx, "vault")
     secrets._uninstall_external_secrets(ctx, "external-secrets")
 
 

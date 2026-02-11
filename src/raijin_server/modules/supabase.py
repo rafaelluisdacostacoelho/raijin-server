@@ -620,6 +620,24 @@ def _deploy_kong(ctx: ExecutionContext, namespace: str, replicas: int) -> bool:
                     paths:
                       - /auth/v1/
                     strip_path: false
+                plugins:
+                  - name: cors
+                    config:
+                      origins:
+                        - "*"
+                      methods:
+                        - GET
+                        - POST
+                        - PUT
+                        - DELETE
+                        - OPTIONS
+                      headers:
+                        - Authorization
+                        - Content-Type
+                        - apikey
+                        - x-client-info
+                        - x-supabase-api-version
+                      credentials: true
               - name: rest
                 url: http://supabase-postgrest.{namespace}.svc:3000/
                 routes:
@@ -627,6 +645,26 @@ def _deploy_kong(ctx: ExecutionContext, namespace: str, replicas: int) -> bool:
                     paths:
                       - /rest/v1/
                     strip_path: false
+                plugins:
+                  - name: cors
+                    config:
+                      origins:
+                        - "*"
+                      methods:
+                        - GET
+                        - POST
+                        - PUT
+                        - PATCH
+                        - DELETE
+                        - OPTIONS
+                      headers:
+                        - Authorization
+                        - Content-Type
+                        - Prefer
+                        - apikey
+                        - x-client-info
+                        - x-supabase-api-version
+                      credentials: true
               - name: realtime
                 url: http://supabase-realtime.{namespace}.svc:4000/
                 routes:
@@ -634,6 +672,12 @@ def _deploy_kong(ctx: ExecutionContext, namespace: str, replicas: int) -> bool:
                     paths:
                       - /realtime/v1/
                     strip_path: false
+                plugins:
+                  - name: cors
+                    config:
+                      origins:
+                        - "*"
+                      credentials: true
               - name: storage
                 url: http://supabase-storage.{namespace}.svc:5000/
                 routes:
@@ -641,6 +685,49 @@ def _deploy_kong(ctx: ExecutionContext, namespace: str, replicas: int) -> bool:
                     paths:
                       - /storage/v1/
                     strip_path: false
+                plugins:
+                  - name: cors
+                    config:
+                      origins:
+                        - "*"
+                      methods:
+                        - GET
+                        - POST
+                        - PUT
+                        - DELETE
+                        - OPTIONS
+                      headers:
+                        - Authorization
+                        - Content-Type
+                        - apikey
+                        - x-client-info
+                        - x-supabase-api-version
+                      credentials: true
+              - name: functions
+                url: http://supabase-functions.{namespace}.svc:9000/
+                routes:
+                  - name: functions-all
+                    paths:
+                      - /functions/v1/
+                    strip_path: false
+                plugins:
+                  - name: cors
+                    config:
+                      origins:
+                        - "*"
+                      methods:
+                        - GET
+                        - POST
+                        - PUT
+                        - DELETE
+                        - OPTIONS
+                      headers:
+                        - Authorization
+                        - Content-Type
+                        - apikey
+                        - x-client-info
+                        - x-supabase-api-version
+                      credentials: true
     """).strip()
     
     return _apply_manifest(ctx, manifest, "Kong Gateway")

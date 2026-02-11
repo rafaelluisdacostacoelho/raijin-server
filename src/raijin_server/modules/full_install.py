@@ -9,6 +9,7 @@ import typer
 from raijin_server.utils import ExecutionContext, require_root
 from raijin_server.healthchecks import run_health_check
 from raijin_server.modules import (
+    argo,
     bootstrap,
     calico,
     cert_manager,
@@ -17,13 +18,17 @@ from raijin_server.modules import (
     grafana,
     harbor,
     hardening,
+    kong,
     kubernetes,
     loki,
+    metallb,
+    minio,
     network,
     prometheus,
     secrets,
     sanitize,
     traefik,
+    velero,
 )
 
 
@@ -258,13 +263,18 @@ INSTALL_SEQUENCE = [
     ("firewall", firewall.run, "Firewall UFW", None),
     ("kubernetes", kubernetes.run, "Cluster Kubernetes (kubeadm)", None),
     ("calico", calico.run, "CNI Calico + NetworkPolicy", None),
+    ("metallb", metallb.run, "LoadBalancer em bare metal (pool L2)", None),
+    ("traefik", traefik.run, "Ingress Controller Traefik", None),
     ("cert_manager", _cert_manager_install_only, "cert-manager (instalacao base)", None),
+    ("minio", minio.run, "Object Storage S3-compatible", None),
     ("secrets", secrets.run, "HashiCorp Vault + External Secrets Operator", None),
     ("harbor", harbor.run, "Container Registry com Vulnerability Scanning", None),
     ("prometheus", prometheus.run, "Monitoramento Prometheus", None),
     ("grafana", grafana.run, "Dashboards Grafana", None),
     ("loki", loki.run, "Logs centralizados Loki", None),
-    ("traefik", traefik.run, "Ingress Controller Traefik", None),
+    ("velero", velero.run, "Backup e Restore de clusters", None),
+    ("argo", argo.run, "Argo CD + Argo Workflows (GitOps CI/CD)", "RAIJIN_SKIP_ARGO"),
+    ("kong", kong.run, "API Gateway Kong", "RAIJIN_SKIP_KONG"),
 ]
 
 

@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import typer
-import yaml
+
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
 
 from raijin_server.utils import ExecutionContext, run_cmd
 

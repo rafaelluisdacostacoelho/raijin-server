@@ -101,6 +101,99 @@ def _replace_origins_in_kong_yml(kong_yml: str, new_origins: list[str]) -> str:
     return "\n".join(result_lines)
 
 
+# Headers obrigatorios do plugin CORS do Kong para compatibilidade com supabase-js
+REQUIRED_CORS_HEADERS = [
+    "Authorization",
+    "Content-Type",
+    "apikey",
+    "x-client-info",
+    "x-supabase-api-version",
+]
+
+# Headers extras por servico
+SERVICE_CORS_HEADERS: dict[str, list[str]] = {
+    "rest": ["Prefer"],
+}
+
+# Metodos CORS por servico
+SERVICE_CORS_METHODS: dict[str, list[str]] = {
+    "auth": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "rest": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    "storage": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "functions": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+}
+
+
+def _ensure_cors_headers(kong_yml: str) -> str:
+    """Garante que todos os plugins CORS tenham os headers obrigatorios do supabase-js.
+
+    Percorre o kong.yml e para cada bloco 'name: cors' verifica se existe
+    'headers:' com os valores de REQUIRED_CORS_HEADERS. Se não existir,
+    adiciona o bloco completo antes de 'credentials: true'.
+    """
+    lines = kong_yml.splitlines()
+    result: list[str] = []
+    i = 0
+    in_cors_block = False
+    cors_block_start = -1
+    current_service = ""
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Detectar servico atual (para saber headers extras)
+        if stripped.startswith("- name: ") and not any(
+            kw in stripped for kw in ["cors", "rate-limiting", "key-auth", "request-termination"]
+        ):
+            current_service = stripped.replace("- name: ", "").strip()
+
+        # Detectar inicio de bloco cors
+        if stripped == "- name: cors":
+            in_cors_block = True
+            cors_block_start = len(result)
+
+        # Ao encontrar 'credentials: true' dentro de um bloco cors, verificar
+        # se 'headers:' ja foi emitido NESTE bloco cors (desde cors_block_start)
+        if stripped == "credentials: true" and in_cors_block:
+            # Verificar se headers ja existe neste bloco cors
+            has_headers = False
+            for j in range(cors_block_start, len(result)):
+                if result[j].strip() == "headers:":
+                    has_headers = True
+                    break
+
+            if not has_headers:
+                # Calcular indentacao: 'credentials' esta no nivel config,
+                # 'headers' tambem fica nesse nivel
+                indent = line[: len(line) - len(line.lstrip())]
+
+                # Determinar metodos para este servico
+                methods = SERVICE_CORS_METHODS.get(current_service)
+                if methods:
+                    result.append(f"{indent}methods:")
+                    for m in methods:
+                        result.append(f"{indent}  - {m}")
+
+                # Headers
+                all_headers = list(REQUIRED_CORS_HEADERS)
+                extras = SERVICE_CORS_HEADERS.get(current_service, [])
+                for h in extras:
+                    if h not in all_headers:
+                        all_headers.insert(2, h)  # Inserir apos Content-Type
+
+                result.append(f"{indent}headers:")
+                for h in all_headers:
+                    result.append(f"{indent}  - {h}")
+
+            in_cors_block = False
+
+        result.append(line)
+        i += 1
+
+    return "\n".join(result)
+
+
 def _apply_kong_config(
     ctx: ExecutionContext, kong_yml: str, namespace: str = "supabase"
 ) -> bool:
@@ -146,6 +239,37 @@ def _apply_kong_config(
 # ---------------------------------------------------------------------------
 # CORS Management
 # ---------------------------------------------------------------------------
+
+def cors_fix_headers(ctx: ExecutionContext, namespace: str = "supabase") -> bool:
+    """Garante que todos os plugins CORS tenham os headers obrigatorios do supabase-js.
+
+    Adiciona x-supabase-api-version, x-client-info, e methods em todos os
+    servicos que possuem plugin cors configurado.
+    """
+    typer.secho("\n🔧 Verificando headers CORS...", fg=typer.colors.CYAN, bold=True)
+
+    _warn_argocd(ctx, namespace)
+
+    kong_yml = _get_kong_config(ctx, namespace)
+    if not kong_yml:
+        typer.secho("  ✗ Nao foi possivel obter configuracao do Kong.", fg=typer.colors.RED)
+        return False
+
+    if "x-supabase-api-version" in kong_yml:
+        typer.secho("  ✓ Headers CORS ja estao atualizados.", fg=typer.colors.GREEN)
+        return True
+
+    new_kong_yml = _ensure_cors_headers(kong_yml)
+
+    if new_kong_yml == kong_yml:
+        typer.secho("  ✓ Nenhuma alteracao necessaria.", fg=typer.colors.GREEN)
+        return True
+
+    if _apply_kong_config(ctx, new_kong_yml, namespace):
+        typer.secho("  ✓ Headers CORS atualizados com sucesso.", fg=typer.colors.GREEN)
+        typer.echo("    Adicionados: x-supabase-api-version, x-client-info, methods")
+        return True
+    return False
 
 def cors_list(ctx: ExecutionContext, namespace: str = "supabase") -> list[str]:
     """Lista dominios CORS configurados no Kong."""
@@ -197,6 +321,9 @@ def cors_add(ctx: ExecutionContext, domain: str, namespace: str = "supabase") ->
 
     origins.append(domain)
     new_kong_yml = _replace_origins_in_kong_yml(kong_yml, origins)
+
+    # Garantir que CORS headers obrigatorios do supabase-js estejam presentes
+    new_kong_yml = _ensure_cors_headers(new_kong_yml)
 
     typer.secho(f"\n  Adicionando '{domain}' ao CORS...", fg=typer.colors.CYAN)
     if _apply_kong_config(ctx, new_kong_yml, namespace):
@@ -471,8 +598,8 @@ def harden_key_auth(ctx: ExecutionContext, namespace: str = "supabase") -> bool:
         kong_yml = kong_yml.replace("services:", consumers_block + "services:", 1)
         typer.echo("  + Consumers anon e service_role criados.")
 
-    # Adicionar key-auth plugin aos servicos (auth, rest, realtime, storage)
-    target_services = {"auth", "rest", "realtime", "storage"}
+    # Adicionar key-auth plugin aos servicos (auth, rest, realtime, storage, functions)
+    target_services = {"auth", "rest", "realtime", "storage", "functions"}
     if "key-auth" in kong_yml:
         typer.secho("  ✓ Plugin key-auth ja presente na configuracao.", fg=typer.colors.GREEN)
     else:
@@ -508,7 +635,7 @@ def harden_key_auth(ctx: ExecutionContext, namespace: str = "supabase") -> bool:
         typer.secho("  ✓ Key-auth configurado com sucesso.", fg=typer.colors.GREEN)
         typer.echo("    Consumers: anon, service_role")
         typer.echo("    Modo: apikey header/query param")
-        typer.echo("    Rotas protegidas: auth, rest, realtime, storage")
+        typer.echo("    Rotas protegidas: auth, rest, realtime, storage, functions")
         typer.echo("    Rota publica (sem auth): / (health)")
         return True
     return False
@@ -612,7 +739,7 @@ def harden_health_endpoint(ctx: ExecutionContext, namespace: str = "supabase") -
               config:
                 status_code: 200
                 content_type: "application/json"
-                body: '{"status":"ok","service":"supabase","endpoints":{"/auth/v1/":"Authentication","/rest/v1/":"REST API","/storage/v1/":"Storage","/realtime/v1/":"Realtime"}}'
+                body: '{"status":"ok","service":"supabase","endpoints":{"/auth/v1/":"Authentication","/rest/v1/":"REST API","/storage/v1/":"Storage","/realtime/v1/":"Realtime","/functions/v1/":"Edge Functions"}}'
             - name: cors
               config:
                 origins:""")
@@ -693,6 +820,7 @@ def harden_rate_limiting(ctx: ExecutionContext, namespace: str = "supabase") -> 
         "rest": 300,
         "storage": 60,
         "realtime": 60,
+        "functions": 60,
     }
 
     # Adicionar plugin rate-limiting a cada servico
@@ -1087,6 +1215,16 @@ def status(ctx: ExecutionContext, namespace: str = "supabase") -> None:
             typer.secho(f"  ✓ CORS restrito a {len(origins)} origem(ns).", fg=typer.colors.GREEN)
             for o in origins:
                 typer.echo(f"    - {o}")
+        # Verificar headers CORS obrigatorios (x-supabase-api-version)
+        if "x-supabase-api-version" in kong_yml:
+            typer.secho("  ✓ Header x-supabase-api-version presente no CORS.", fg=typer.colors.GREEN)
+        else:
+            typer.secho(
+                "  ✗ Header x-supabase-api-version AUSENTE no CORS — supabase-js v2.45+ falhara!",
+                fg=typer.colors.RED, bold=True,
+            )
+            typer.echo("    Execute: raijin-server supabase-security cors-add --domain <seu-dominio>")
+            typer.echo("    para reconstruir os headers CORS automaticamente.")
     else:
         typer.secho("  ✗ Nao foi possivel ler Kong config.", fg=typer.colors.RED)
 
